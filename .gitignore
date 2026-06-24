@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+.envrc
+
+# uv
+.uv/
+
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Benchmark outputs
+runs/
+*.jsonl
+*.parquet
+traces/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
