@@ -1,0 +1,15 @@
+# Docker Compose configuration
+# Images are built with: make docker-build
+# Start with: make run-up
+# Stop with: make run-down
+
+services:
+  app:
+    image: ${DOCKER_PREFIX:-}${PROJECT_NAME:-app}:${DOCKER_TAG:-latest}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    # environment:
+    #   - ENV_VAR=value
+    # volumes:
+    #   - ./data:/data:ro

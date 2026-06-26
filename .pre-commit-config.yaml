@@ -1,0 +1,25 @@
+# =============================================================================
+# PRE-COMMIT HOOKS CONFIGURATION
+# =============================================================================
+# Install: uv run pre-commit install
+# Run all: uv run pre-commit run --all-files
+
+repos:
+  # Ruff: linting + formatting (replaces Black, isort, Flake8)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # mypy: type checking (uses local uv environment for access to project deps)
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [src/]
