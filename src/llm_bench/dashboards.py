@@ -380,4 +380,9 @@ STARTER_DASHBOARD: str = """\
   values:
     - {metric: input_tokens, agg: p50}
     - {metric: output_tokens, agg: p50}
+- title: Quality score vs load
+  x: level_or_rate
+  values:
+    - {metric: quality_score, agg: mean}
+    - {metric: quality_score, agg: p50}
 """

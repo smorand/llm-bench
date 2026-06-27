@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
+import typer
+
+from llm_bench.config import BenchConfig, ModelRegistryEntry
 from llm_bench.evaluation import (
     EvalRecord,
     _judge_payload,
     _parse_judge_score,
     _verdict_to_score,
 )
+from llm_bench.llm_bench import _apply_eval_overrides_or_exit
 
 
 def _reply(content: str) -> dict:
@@ -41,3 +46,43 @@ def test_judge_payload_score_rubric_asks_for_a_number() -> None:
     # the categorical rubrics still forbid a numeric score
     cat = _judge_payload("m", None, record, "binary")["messages"][0]["content"]
     assert "Do not use any numeric score" in cat
+
+
+def _two_model_config() -> BenchConfig:
+    return BenchConfig(
+        models=[
+            ModelRegistryEntry(name="sut", base_url="http://sut/v1", model="m-sut"),
+            ModelRegistryEntry(name="grader", base_url="http://grader/v1", model="m-grader", api_key="k"),
+        ]
+    )
+
+
+def test_judge_model_override_builds_judge_from_registry() -> None:
+    """--judge-model points the judge at a registry entry's endpoint/model/key."""
+    cfg = _two_model_config()
+    _apply_eval_overrides_or_exit(cfg, judge_model="grader", judge_rubric="score", embedding_model=None)
+    assert cfg.evaluation is not None and cfg.evaluation.judge is not None
+    judge = cfg.evaluation.judge
+    assert judge.model.url == "http://grader/v1"
+    assert judge.model.model == "m-grader"
+    assert judge.model.api_key == "k"
+    assert judge.rubric == "score"
+
+
+def test_embedding_model_override_builds_embedding_with_default_threshold() -> None:
+    """--embedding-model synthesises an embedding block with a default threshold."""
+    cfg = _two_model_config()
+    _apply_eval_overrides_or_exit(cfg, judge_model=None, judge_rubric=None, embedding_model="grader")
+    assert cfg.evaluation is not None and cfg.evaluation.embedding is not None
+    emb = cfg.evaluation.embedding
+    assert emb.url == "http://grader/v1"
+    assert emb.threshold == 0.8
+
+
+def test_eval_override_rejects_unknown_model_and_rubric() -> None:
+    """An unknown model name or rubric exits non-zero."""
+    cfg = _two_model_config()
+    with pytest.raises(typer.Exit):
+        _apply_eval_overrides_or_exit(cfg, judge_model="ghost", judge_rubric=None, embedding_model=None)
+    with pytest.raises(typer.Exit):
+        _apply_eval_overrides_or_exit(cfg, judge_model="grader", judge_rubric="bogus", embedding_model=None)

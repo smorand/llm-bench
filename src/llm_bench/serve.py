@@ -95,7 +95,10 @@ _FIELD_INFO: dict[str, str] = {
     "SLO profile": "Threshold set (TTFT / TPOT / E2E) used to compute goodput. 'interactive' is strict, 'relaxed' is lenient.",
     "Seed": "Seed for reproducible prompt selection: the same seed replays the same prompt sequence.",
     "Prompts": "Which prompt library to send. Pick a file from ~/.config/llm-bench/prompts/, or the built-in default. Manage files in the Prompts tab.",
-    "Quality eval": "Optional output-quality scoring (async, never perturbs timing). 'embedding' = cosine vs the prompt's expected_output; 'judge' = an LLM grades it (rubric from the config's evaluation.judge block). Both fill the quality_score metric. Requires an 'evaluation' block in config.yaml.",
+    "Quality eval": "Optional output-quality scoring (async, never perturbs timing). 'embedding' = cosine vs the prompt's expected_output; 'judge' = an LLM grades it. Both fill the quality_score (0..1) metric. Only prompts that declare an expected_output are scored.",
+    "Judge model": "Which registry model grades the answers. '— from config —' keeps evaluation.judge.model; otherwise the chosen model's endpoint/key are used as the judge.",
+    "Judge rubric": "How the judge scores: 'score' = the model returns a 0..1 number; 'three_level' = correct/partial/incorrect; 'binary' = pass/fail (categorical verdicts are mapped to 0..1 too).",
+    "Embedding model": "Which registry model provides embeddings. It must serve an OpenAI-style /v1/embeddings endpoint (most chat-only gateways do not). '— from config —' keeps evaluation.embedding.",
 }
 
 
@@ -113,6 +116,9 @@ class RunRequest:
     seed: str = ""
     prompts: str = ""  # absolute path to a prompts file, or "" for the default library
     eval_method: str = ""  # "", "embedding", or "judge"
+    judge_model: str = ""  # registry entry name to use as the judge
+    judge_rubric: str = ""  # "", "score", "three_level", or "binary"
+    embedding_model: str = ""  # registry entry name to use as the embeddings endpoint
 
 
 def _info(label: str, infos: dict[str, str]) -> str:
@@ -572,6 +578,9 @@ def build_run_command(config_path: Path | None, req: RunRequest, out_dir: Path) 
         ("--seed", req.seed),
         ("--prompts", req.prompts),
         ("--eval-method", req.eval_method),
+        ("--judge-model", req.judge_model),
+        ("--judge-rubric", req.judge_rubric),
+        ("--embedding-model", req.embedding_model),
     ):
         if value:
             cmd += [flag, value]
@@ -832,6 +841,7 @@ def build_run_page(config_path: Path | None, prompts_dir: Path | None, runs_coun
     model_options = "".join(
         f"<option value='{escape(m['name'])}'>{escape(m['name'])} · {escape(m['model'])}</option>" for m in models
     )
+    eval_model_options = "<option value=''>— from config —</option>" + model_options
     profiles, profile_default = slo_profile_options(config_path)
     profile_options = "".join(
         f"<option value='{escape(p)}'{' selected' if p == profile_default else ''}>{escape(p)}</option>"
@@ -842,7 +852,7 @@ def build_run_page(config_path: Path | None, prompts_dir: Path | None, runs_coun
         for f in list_prompt_files(prompts_dir)
     )
     body = (
-        "<h1>Run a benchmark</h1>"
+        "<h1>Run a benchmark</h1>"  # nosec B608  (HTML string building, not SQL; '<select>' trips the heuristic)
         "<form id='runform' onsubmit='startRun(event)'>"
         f"<div class='fld'>{_label('Model')}<select name='model'>{model_options}</select></div>"
         f"<div class='fld'>{_label('Mode')}"
@@ -858,9 +868,18 @@ def build_run_page(config_path: Path | None, prompts_dir: Path | None, runs_coun
         "<input name='r_manual' placeholder='extra req/s, comma-separated e.g. 7,15' size='28'></div>"
         f"<div class='fld'>{_label('Duration')}{_duration_select()}</div>"
         f"<div class='fld'>{_label('Prompts')}<select name='prompts'>{prompt_options}</select></div>"
-        f"<div class='fld'>{_label('Quality eval')}<select name='eval_method'>"
+        f"<div class='fld'>{_label('Quality eval')}<select name='eval_method' onchange='toggleEval()'>"
         "<option value=''>none</option><option value='embedding'>embedding (cosine)</option>"
         "<option value='judge'>judge (model)</option></select></div>"
+        "<div class='row' id='eval-judge' style='display:none'>"
+        f"<div class='fld'>{_label('Judge model')}<select name='judge_model'>{eval_model_options}</select></div>"
+        f"<div class='fld'>{_label('Judge rubric')}<select name='judge_rubric'>"
+        "<option value=''>— from config —</option><option value='score'>score (0..1)</option>"
+        "<option value='three_level'>three_level</option><option value='binary'>binary</option></select></div>"
+        "</div>"
+        "<div class='row' id='eval-embedding' style='display:none'>"
+        f"<div class='fld'>{_label('Embedding model')}<select name='embedding_model'>{eval_model_options}</select></div>"
+        "</div>"
         "<div class='row'>"
         f"<div class='fld'>{_label('Max tokens')}<input name='max_tokens' type='number' min='1' placeholder='config' size='8'></div>"
         f"<div class='fld'>{_label('Temperature')}<input name='temperature' type='number' min='0' step='0.1' placeholder='config' size='8'></div>"
@@ -882,6 +901,11 @@ function toggleMode(){
   const open = document.querySelector('input[name=mode]:checked').value === 'open';
   document.getElementById('open-load').style.display = open ? 'block' : 'none';
   document.getElementById('closed-load').style.display = open ? 'none' : 'block';
+}
+function toggleEval(){
+  const m = document.querySelector('select[name=eval_method]').value;
+  document.getElementById('eval-judge').style.display = m === 'judge' ? 'flex' : 'none';
+  document.getElementById('eval-embedding').style.display = m === 'embedding' ? 'flex' : 'none';
 }
 async function startRun(ev){
   ev.preventDefault();
@@ -1283,6 +1307,10 @@ def parse_run_form(form: dict[str, list[str]], known_models: set[str], prompts_d
     eval_method = form.get("eval_method", [""])[0].strip()
     if eval_method and eval_method not in {"embedding", "judge"}:
         raise ReportServeError(f"invalid eval method: {eval_method!r}")
+    # eval model overrides only apply to the matching method.
+    judge_model = form.get("judge_model", [""])[0].strip() if eval_method == "judge" else ""
+    judge_rubric = form.get("judge_rubric", [""])[0].strip() if eval_method == "judge" else ""
+    embedding_model = form.get("embedding_model", [""])[0].strip() if eval_method == "embedding" else ""
 
     return RunRequest(
         model=model,
@@ -1295,6 +1323,9 @@ def parse_run_form(form: dict[str, list[str]], known_models: set[str], prompts_d
         seed=form.get("seed", [""])[0].strip(),
         prompts=prompts_path,
         eval_method=eval_method,
+        judge_model=judge_model,
+        judge_rubric=judge_rubric,
+        embedding_model=embedding_model,
     )
 
 

@@ -42,6 +42,7 @@ def test_parse_dashboard_valid_and_errors() -> None:
         "Throughput vs load",
         "E2E latency by output length",
         "Tokens per request vs load",
+        "Quality score vs load",
     ]
     assert panels[2].group == "osl_bucket"
 

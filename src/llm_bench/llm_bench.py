@@ -27,6 +27,10 @@ from llm_bench.config import (
     REDACTED,
     ConfigError,
     ConfigValidationError,
+    EmbeddingConfig,
+    EvaluationConfig,
+    JudgeConfig,
+    JudgeModel,
     MissingEnvVarError,
     apply_eval_method,
     apply_slo_overrides,
@@ -201,6 +205,22 @@ def run(
         str | None,
         typer.Option("--eval-method", help="Quality evaluation method: 'embedding' or 'judge'."),
     ] = None,
+    judge_model: Annotated[
+        str | None,
+        typer.Option(
+            "--judge-model", help="Registry model to use as the LLM judge (overrides evaluation.judge.model)."
+        ),
+    ] = None,
+    judge_rubric: Annotated[
+        str | None,
+        typer.Option("--judge-rubric", help="Judge rubric: 'score' (0..1), 'three_level', or 'binary'."),
+    ] = None,
+    embedding_model: Annotated[
+        str | None,
+        typer.Option(
+            "--embedding-model", help="Registry model to use as the embeddings endpoint (must serve /v1/embeddings)."
+        ),
+    ] = None,
 ) -> None:
     """Run a benchmark sweep against one model and write a run directory.
 
@@ -225,6 +245,9 @@ def run(
         slo_profile=slo_profile,
         max_tokens=max_tokens,
         temperature=temperature,
+    )
+    _apply_eval_overrides_or_exit(
+        bench_config, judge_model=judge_model, judge_rubric=judge_rubric, embedding_model=embedding_model
     )
     _apply_eval_method_or_exit(bench_config, eval_method)
     _configure_run_logging(log_format)
@@ -281,6 +304,73 @@ def _apply_eval_method_or_exit(bench_config: BenchConfig, eval_method: str | Non
     except ConfigValidationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
+
+
+_DEFAULT_EMBED_THRESHOLD = 0.8
+_RUBRICS: frozenset[str] = frozenset({"binary", "three_level", "score"})
+
+
+def _apply_eval_overrides_or_exit(
+    bench_config: BenchConfig, *, judge_model: str | None, judge_rubric: str | None, embedding_model: str | None
+) -> None:
+    """Point the judge / embedding at a registry model (and pick the judge rubric).
+
+    Lets the UI choose evaluators without hand-editing the config: a named
+    registry entry supplies the judge's or embedding's url / model / api_key, and
+    an evaluation block is synthesised when the config has none. Exits non-zero on
+    an unknown model name or rubric.
+    """
+    if not (judge_model or judge_rubric or embedding_model):
+        return
+    if judge_rubric is not None and judge_rubric not in _RUBRICS:
+        typer.echo(f"invalid --judge-rubric: {judge_rubric} (expected {sorted(_RUBRICS)})", err=True)
+        raise typer.Exit(2)
+    evaluation = bench_config.evaluation or EvaluationConfig()
+
+    if judge_model or judge_rubric:
+        entry = _eval_entry_or_exit(bench_config, judge_model) if judge_model else None
+        existing = evaluation.judge
+        model = (
+            JudgeModel(
+                url=entry.base_url,
+                model=entry.model,
+                api_key=entry.api_key,
+                prompt=existing.model.prompt if existing else None,
+            )
+            if entry is not None
+            else (existing.model if existing else None)
+        )
+        if model is None:
+            typer.echo(
+                "--judge-rubric needs a judge model (pass --judge-model or add an evaluation.judge block)", err=True
+            )
+            raise typer.Exit(2)
+        rubric = judge_rubric or (existing.rubric if existing else "score")
+        evaluation.judge = JudgeConfig(model=model, rubric=rubric)  # type: ignore[arg-type]
+
+    if embedding_model:
+        entry = _eval_entry_or_exit(bench_config, embedding_model)
+        existing_embed = evaluation.embedding
+        evaluation.embedding = EmbeddingConfig(
+            url=entry.base_url,
+            model=entry.model,
+            api_key=entry.api_key,
+            threshold=existing_embed.threshold
+            if existing_embed and existing_embed.threshold is not None
+            else _DEFAULT_EMBED_THRESHOLD,
+            rate_limit=existing_embed.rate_limit if existing_embed else None,
+        )
+
+    bench_config.evaluation = evaluation
+
+
+def _eval_entry_or_exit(bench_config: BenchConfig, name: str) -> ModelRegistryEntry:
+    """Resolve a registry entry by name for an eval override, aborting if unknown."""
+    try:
+        return bench_config.model_entry(name)
+    except (ConfigError, ConfigValidationError, KeyError, ValueError) as exc:
+        typer.echo(f"unknown model for evaluation: {name!r} ({exc})", err=True)
+        raise typer.Exit(2) from exc
 
 
 def _warn_self_preference(bench_config: BenchConfig, model: str | None) -> None:

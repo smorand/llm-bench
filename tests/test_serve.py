@@ -199,16 +199,41 @@ def test_build_run_page_lists_models(tmp_path: Path) -> None:
 
 
 def test_parse_run_form_eval_method(tmp_path: Path) -> None:
-    """A chosen quality-eval method flows into the request and the launch argv."""
+    """A chosen quality-eval method + judge model/rubric flow into the request + argv."""
     pdir = _prompts_dir(tmp_path)
-    form = {"model": ["m"], "mode": ["closed"], "c": ["1"], "eval_method": ["judge"]}
+    form = {
+        "model": ["m"],
+        "mode": ["closed"],
+        "c": ["1"],
+        "eval_method": ["judge"],
+        "judge_model": ["ei-qwen36"],
+        "judge_rubric": ["score"],
+        "embedding_model": ["x"],
+    }
     req = parse_run_form(form, {"m"}, pdir)
     assert req.eval_method == "judge"
+    assert req.judge_model == "ei-qwen36"
+    assert req.judge_rubric == "score"
+    assert req.embedding_model == ""  # embedding override ignored under judge mode
     cmd = build_run_command(None, req, tmp_path / "out")
     assert cmd[cmd.index("--eval-method") + 1] == "judge"
+    assert cmd[cmd.index("--judge-model") + 1] == "ei-qwen36"
+    assert cmd[cmd.index("--judge-rubric") + 1] == "score"
+    assert "--embedding-model" not in cmd
     # an invalid method is rejected
     with pytest.raises(ReportServeError, match="invalid eval method"):
         parse_run_form({"model": ["m"], "mode": ["closed"], "c": ["1"], "eval_method": ["bogus"]}, {"m"}, pdir)
+
+
+def test_run_page_eval_model_selectors(tmp_path: Path) -> None:
+    """The Run tab exposes judge-model / judge-rubric / embedding-model selectors."""
+    config = _write_config(tmp_path)
+    page = build_run_page(config, None, runs_count=0)
+    assert "name='judge_model'" in page
+    assert "name='judge_rubric'" in page
+    assert "name='embedding_model'" in page
+    assert "score (0..1)" in page
+    assert "id='eval-judge'" in page and "id='eval-embedding'" in page
 
 
 def test_build_run_page_without_models(tmp_path: Path) -> None:
