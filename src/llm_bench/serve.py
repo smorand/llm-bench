@@ -651,13 +651,16 @@ class JobRegistry:
         if code is None:
             # The eval pool drains concurrently with the load, so both bars run together.
             load_pct = min(99.0, 100.0 * elapsed / estimate) if estimate else 5.0
-            return {
+            payload = {
                 "state": "running",
                 "eval": bool(job.get("eval")),
                 "pct": round(load_pct, 1),
                 "elapsed": round(elapsed),
                 "estimate": round(estimate),
             }
+            if job.get("eval"):
+                payload.update(_eval_progress(job["out_dir"], load_pct))
+            return payload
         job["log"].close()
         if code == 0 and (job["out_dir"] / "summary.json").is_file():
             return {"state": "done", "pct": 100.0, "run": job["out_dir"].name}
@@ -677,6 +680,24 @@ def _tail(path: Path, limit: int = 400) -> str:
         return path.read_text(encoding="utf-8")[-limit:].strip()
     except OSError:
         return "run failed (no log available)"
+
+
+def _eval_progress(out_dir: Path, load_pct: float) -> dict[str, Any]:
+    """Read the runner's live eval-progress snapshot into a quality-bar payload.
+
+    The bar fills with ``load_pct * (scored / enqueued)``: when the concurrent eval
+    keeps pace with the load it tracks the load bar (gradually 0 -> 100%); when it
+    falls behind, the caught-up ratio drops and the quality bar visibly trails the
+    load bar. Missing/partial file -> empty bar until the first records are scored.
+    """
+    try:
+        data = json.loads((out_dir / "eval_progress.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"eval_scored": 0, "eval_total": 0, "eval_pct": 0.0}
+    scored = int(data.get("scored", 0))
+    total = int(data.get("enqueued", 0))
+    caught_up = scored / total if total else 0.0
+    return {"eval_scored": scored, "eval_total": total, "eval_pct": round(load_pct * caught_up, 1)}
 
 
 # ---------------------------------------------------------------------------
@@ -730,8 +751,6 @@ table.help td:first-child { white-space: nowrap; color: #0f62fe; width: 1%; }
 .note { color: #6f6f6f; font-size: .8rem; }
 .bar { height: 8px; background: #e0e0e0; margin: .3rem 0 .5rem; max-width: 30rem; overflow: hidden; }
 .bar > span { display: block; height: 100%; width: 0; background: #0f62fe; transition: width .4s; }
-.bar > span.indet { width: 35%; animation: indet 1.1s ease-in-out infinite; }
-@keyframes indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 .run-badge { margin-left: auto; color: #fff; background: #0f62fe; padding: .15rem .6rem; font-size: .8rem; text-decoration: none; }
 .jobrow { border: 1px solid #e0e0e0; background: #fff; padding: .6rem .8rem; margin: .5rem 0; max-width: 34rem; }
 .jobhead { font-size: .9rem; margin-bottom: .2rem; }
@@ -967,9 +986,12 @@ function jobRow(j){
     html += "</div>";
     html += "<div class='barlabel'>Load</div><div class='bar'><span style='width:" + (j.pct||0) + "%'></span></div>";
     if(j.eval){
-      // Quality eval drains in parallel with the load, so the bar is active for the whole run.
-      html += "<div class='barlabel'>Quality eval · running (parallel)</div>";
-      html += "<div class='bar'><span class='indet'></span></div>";
+      // Quality eval drains in parallel with the load; fill the bar with the real
+      // scored/queued ratio so it visibly progresses alongside the load bar.
+      const qs = j.eval_scored||0, qt = j.eval_total||0, qp = j.eval_pct||0;
+      const qlabel = qt ? (" · " + qs + "/" + qt + " scored") : " · waiting for eligible responses";
+      html += "<div class='barlabel'>Quality eval" + qlabel + "</div>";
+      html += "<div class='bar'><span style='width:" + qp + "%'></span></div>";
     }
   } else if(j.state === 'done'){
     html += "done · <a href='/?run=" + encodeURIComponent(j.run) + "'>open in Dashboards</a></div>";

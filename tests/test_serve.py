@@ -335,6 +335,19 @@ def test_job_eval_flag_and_list_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert running["eval"] is True
     assert running["pct"] < 100.0
     assert "phase" not in running
+    # No progress file yet -> the quality bar starts empty.
+    assert running["eval_total"] == 0
+    assert running["eval_pct"] == 0.0
+
+    # Once the runner has scored some records, the quality bar fills with
+    # load_pct * (scored / enqueued): tracks the load when eval keeps pace, trails it when behind.
+    job = registry._jobs[job_id]
+    (job["out_dir"] / "eval_progress.json").write_text('{"scored": 7, "enqueued": 10}', encoding="utf-8")
+    progressing = registry.status(job_id)
+    assert progressing["eval_scored"] == 7
+    assert progressing["eval_total"] == 10
+    assert progressing["eval_pct"] == round(progressing["pct"] * 0.7, 1)
+    assert progressing["eval_pct"] <= progressing["pct"]  # eval can never lead the load
 
     listed = registry.list_jobs()
     assert listed and listed[0]["job"] == job_id

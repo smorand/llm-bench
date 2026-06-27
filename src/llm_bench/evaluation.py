@@ -177,6 +177,7 @@ class EvalPipeline:
         self._client: httpx.AsyncClient | None = None
         self._stopping = False
         self._workers: list[asyncio.Task[None]] = []
+        self._enqueued = 0
 
     @property
     def dropped(self) -> int:
@@ -198,6 +199,16 @@ class EvalPipeline:
             self._dropped += 1
             return
         self._pending.add(record.request_id)
+        self._enqueued += 1
+
+    def progress(self) -> tuple[int, int]:
+        """Return ``(scored, enqueued)`` for the live quality-eval progress bar.
+
+        ``scored`` is the count of records the worker pool has finished evaluating;
+        ``enqueued`` is the count accepted into the queue so far (drops excluded).
+        Their ratio is how caught-up the concurrent eval is with the load.
+        """
+        return len(self._results), self._enqueued
 
     async def start(self) -> None:
         """Spawn the worker pool so the queue drains concurrently with the load (FR-045).

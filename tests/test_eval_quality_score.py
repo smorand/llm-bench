@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 import typer
 
-from llm_bench.config import BenchConfig, ModelRegistryEntry
+from llm_bench.config import BenchConfig, EmbeddingConfig, EvaluationConfig, ModelRegistryEntry
 from llm_bench.evaluation import (
+    EvalPipeline,
     EvalRecord,
     _judge_payload,
     _parse_judge_score,
@@ -104,3 +105,19 @@ def test_embedding_local_rejects_bad_preset() -> None:
     cfg = _two_model_config()
     with pytest.raises(typer.Exit):
         _apply_eval_overrides_or_exit(cfg, judge_model=None, judge_rubric=None, embedding_model="local:bogus")
+
+
+def test_pipeline_progress_counts_enqueued_not_drops() -> None:
+    """progress() reports (scored, enqueued); a drop on a full queue is not counted."""
+    evaluation = EvaluationConfig(method="embedding", embedding=EmbeddingConfig(local="cpu", threshold=0.8))
+    pipeline = EvalPipeline(evaluation, queue_maxsize=2, global_timeout=None)
+    assert pipeline.progress() == (0, 0)
+
+    pipeline.enqueue(EvalRecord(request_id="a", expected="x", actual="y"))
+    pipeline.enqueue(EvalRecord(request_id="b", expected="x", actual="y"))
+    assert pipeline.progress() == (0, 2)
+
+    # The queue is full (maxsize 2): this record is dropped, so enqueued stays at 2.
+    pipeline.enqueue(EvalRecord(request_id="c", expected="x", actual="y"))
+    assert pipeline.dropped == 1
+    assert pipeline.progress() == (0, 2)

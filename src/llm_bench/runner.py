@@ -1425,11 +1425,14 @@ async def run_benchmark(
 
     provider = _configure_run_tracer(context)
     context.eval_pipeline = _build_eval_pipeline(config, context)
+    heartbeat: asyncio.Task[None] | None = None
     if context.eval_pipeline is not None:
         # Drain the eval queue concurrently with the load so scoring runs in parallel,
         # not as a trailing phase. finish() awaits the post-load tail at the end.
         await context.eval_pipeline.start()
         logger.info("eval_started", extra={"event": "eval_started", "run_id": context.run_id})
+        if out_dir is not None:
+            heartbeat = asyncio.create_task(_eval_heartbeat(context.eval_pipeline, out_dir))
     logger.info("run_started", extra={"event": "run_started", "run_id": context.run_id, "model": entry.model})
     try:
         interrupted = await _drive_sweep(config, context) if context.library.prompts else False
@@ -1442,6 +1445,10 @@ async def run_benchmark(
     _render_terminal_summary(context)
     _render_guard_summary(context)
     await _finalize_evaluation(context)
+    if heartbeat is not None:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
 
     rows = _records_as_dicts(context)
     _write_raw(context, rows)
@@ -1470,6 +1477,28 @@ def _eval_queue_maxsize(run: RunConfig) -> int | None:
         if isinstance(extra, dict):
             value = extra.get("eval_queue_maxsize")
     return int(value) if value is not None else None
+
+
+EVAL_PROGRESS_FILE = "eval_progress.json"
+
+
+def _write_eval_progress(pipeline: EvalPipeline, out_dir: Path) -> None:
+    """Snapshot the live (scored, enqueued) eval counts for the serve progress bar."""
+    scored, enqueued = pipeline.progress()
+    payload = {"scored": scored, "enqueued": enqueued}
+    with contextlib.suppress(OSError):
+        (out_dir / EVAL_PROGRESS_FILE).write_text(json.dumps(payload), encoding="utf-8")
+
+
+async def _eval_heartbeat(pipeline: EvalPipeline, out_dir: Path) -> None:
+    """Write live eval progress every second so the serve UI can fill the quality bar."""
+    try:
+        while True:
+            _write_eval_progress(pipeline, out_dir)
+            await asyncio.sleep(1.0)
+    finally:
+        # Flush a final snapshot on cancel so the bar lands on its true end state.
+        _write_eval_progress(pipeline, out_dir)
 
 
 async def _finalize_evaluation(context: RunContext) -> None:
