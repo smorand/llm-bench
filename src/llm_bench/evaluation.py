@@ -377,7 +377,9 @@ class EvalPipeline:
         client = self._require_client()
         model = judge.model
         url = f"{str(model.url).rstrip('/')}/chat/completions"
-        payload = _judge_payload(model.model, model.prompt, record, judge.rubric)
+        payload = _judge_payload(
+            model.model, model.prompt, record, judge.rubric, send_temperature=model.send_temperature
+        )
         headers = _bearer(model.api_key)
         with trace_span(
             "eval.judge",
@@ -442,7 +444,9 @@ def _bearer(api_key: str | None) -> dict[str, str]:
     return headers
 
 
-def _judge_payload(model: str, prompt: str | None, record: EvalRecord, rubric: str) -> dict[str, Any]:
+def _judge_payload(
+    model: str, prompt: str | None, record: EvalRecord, rubric: str, *, send_temperature: bool = True
+) -> dict[str, Any]:
     """Build the judge chat-completion request body for one record (FR-044)."""
     instruction = prompt or "Grade the answer against the expected output."
     if rubric == "score":
@@ -457,15 +461,18 @@ def _judge_payload(model: str, prompt: str | None, record: EvalRecord, rubric: s
             f"one of {vocabulary}. Do not use any numeric score."
         )
     user = json.dumps({"expected": record.expected, "actual": record.actual})
-    return {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "temperature": 0.0,
         "stream": False,
     }
+    # Some gateway models (e.g. Bedrock-backed claude-opus-4-8) 400 on temperature.
+    if send_temperature:
+        payload["temperature"] = 0.0
+    return payload
 
 
 # Categorical verdicts mapped to a 0..1 quality score for the unified metric.

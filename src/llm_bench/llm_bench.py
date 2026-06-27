@@ -338,6 +338,7 @@ def _apply_eval_overrides_or_exit(
                 model=entry.model,
                 api_key=entry.api_key,
                 prompt=existing.model.prompt if existing else None,
+                send_temperature=entry.send_temperature,
             )
             if entry is not None
             else (existing.model if existing else None)

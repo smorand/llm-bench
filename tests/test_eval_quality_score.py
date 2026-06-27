@@ -49,6 +49,13 @@ def test_judge_payload_score_rubric_asks_for_a_number() -> None:
     assert "Do not use any numeric score" in cat
 
 
+def test_judge_payload_omits_temperature_when_disabled() -> None:
+    """send_temperature=False drops temperature (gateways like claude-opus-4-8 400 on it)."""
+    record = EvalRecord(request_id="r1", expected="a", actual="b")
+    assert _judge_payload("m", None, record, "score")["temperature"] == 0.0
+    assert "temperature" not in _judge_payload("m", None, record, "score", send_temperature=False)
+
+
 def _two_model_config() -> BenchConfig:
     return BenchConfig(
         models=[

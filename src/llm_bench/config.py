@@ -429,14 +429,77 @@ STARTER_PROMPTS_QUALITY: str = """\
   expected_output: "It improves throughput by letting a program do other work while waiting on I/O."
 """
 
+# Code-focused quality-eval prompt set written by ``llm-bench init`` to
+# ``prompts/code-quality.yaml``. Like ``quality.yaml`` but every prompt is a small,
+# deterministic coding task with a canonical reference answer, so the quality eval
+# (embedding cosine or judge) scores code generation. Select it with
+# ``--prompts ~/.config/llm-bench/prompts/code-quality.yaml --eval-method embedding``.
+STARTER_PROMPTS_CODE_QUALITY: str = """\
+# Code quality-eval prompt library written by 'llm-bench init'.
+# Each prompt is a small coding task with a canonical expected_output, so almost
+# every request is scored against a reference answer:
+#   llm-bench run -m <model> --prompts ~/.config/llm-bench/prompts/code-quality.yaml --eval-method embedding
+# Keep answers short and deterministic (ask for "only the expression/statement").
+- id: code-reverse-string
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Python one-liner to reverse the string s. Reply with only the expression."
+  expected_output: "s[::-1]"
+- id: code-comprehension
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Refactor into a list comprehension: for x in xs: out.append(x*2). Only the one line."
+  expected_output: "out = [x * 2 for x in xs]"
+- id: code-dedupe
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Python expression to remove duplicates from list xs (order does not matter). Only the expression."
+  expected_output: "list(set(xs))"
+- id: code-divisible
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Python boolean expression that is true when integer n is divisible by 15. Only the expression."
+  expected_output: "n % 15 == 0"
+- id: code-sum-range
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Python one-liner summing the integers from 1 to 100 inclusive. Only the expression."
+  expected_output: "sum(range(1, 101))"
+- id: code-swap
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Python statement that swaps the values of variables a and b. Only the statement."
+  expected_output: "a, b = b, a"
+- id: code-sql-select
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "SQL query selecting all columns from table users where age is greater than 30. Only the query."
+  expected_output: "SELECT * FROM users WHERE age > 30;"
+"""
+
 
 def scaffold_config() -> tuple[list[Path], list[Path]]:
     """Create the default config + runs directories and starter config/prompt files.
 
     Writes a starter ``config.yaml`` and a ``prompts/`` directory holding
     ``short.yaml`` (a mirror of the built-in library), ``long.yaml``
-    (instruction-heavy long-input prompts), and ``quality.yaml`` (every prompt has
-    an ``expected_output`` so the quality eval scores almost every request).
+    (instruction-heavy long-input prompts), ``quality.yaml`` (every prompt has an
+    ``expected_output`` so the quality eval scores almost every request), and
+    ``code-quality.yaml`` (the same, for small deterministic coding tasks).
     Idempotent: existing directories and files are left untouched. Returns
     ``(created, skipped)`` paths to report.
     """
@@ -461,6 +524,7 @@ def scaffold_config() -> tuple[list[Path], list[Path]]:
         (prompts_dir / "short.yaml", export_builtin_prompts_yaml()),
         (prompts_dir / "long.yaml", STARTER_PROMPTS_LONG),
         (prompts_dir / "quality.yaml", STARTER_PROMPTS_QUALITY),
+        (prompts_dir / "code-quality.yaml", STARTER_PROMPTS_CODE_QUALITY),
         (dashboards_dir / "default.yaml", STARTER_DASHBOARD),
     ):
         if target.exists():
@@ -554,6 +618,9 @@ class ModelRegistryEntry(BaseModel):
     tokenizer: str | None = None
     supports_vision: bool = False
     supports_tools: bool = False
+    # Some gateway models (e.g. Bedrock-backed claude-opus-4-8) reject the
+    # ``temperature`` parameter; set this false to omit it from every request.
+    send_temperature: bool = True
     price_input: float | None = None
     price_output: float | None = None
 
@@ -591,6 +658,8 @@ class JudgeModel(BaseModel):
     model: str
     api_key: str | None = None
     prompt: str | None = None
+    # Mirror of ModelRegistryEntry.send_temperature for judge models that reject it.
+    send_temperature: bool = True
 
 
 class JudgeConfig(BaseModel):

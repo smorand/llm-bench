@@ -45,7 +45,9 @@ import pytest
 from typer.testing import CliRunner
 
 from llm_bench import runner as runner_module
+from llm_bench.config import ModelRegistryEntry, RunConfig
 from llm_bench.llm_bench import app
+from llm_bench.prompts import Prompt
 from tests.conftest import Behavior, Delta, Usage
 
 if TYPE_CHECKING:
@@ -1485,3 +1487,13 @@ def test_preflight_flag_unreachable_aborts(
     assert result.exit_code != 0
     assert "pre-flight verification failed" in _stderr(result)
     assert not (out_dir / "raw.jsonl").exists()
+
+
+def test_build_payload_omits_temperature_when_send_temperature_false() -> None:
+    """send_temperature=False drops temperature from the SUT payload (gateway compat)."""
+    run = RunConfig(temperature=0.0, cache_busting=False)
+    prompt = Prompt(id="p", category="general", messages=({"role": "user", "content": "hi"},), isl_bucket="short")
+    on = ModelRegistryEntry(name="a", base_url="http://x/v1", model="m")  # send_temperature defaults to True
+    off = ModelRegistryEntry(name="b", base_url="http://x/v1", model="m", send_temperature=False)
+    assert runner_module._build_payload(on, run, prompt)["temperature"] == 0.0
+    assert "temperature" not in runner_module._build_payload(off, run, prompt)

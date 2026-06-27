@@ -537,10 +537,12 @@ def _build_payload(entry: ModelRegistryEntry, run: RunConfig, prompt: Prompt) ->
         "model": entry.model,
         "messages": messages,
         "max_tokens": run.max_tokens,
-        "temperature": run.temperature,
         "stream": True,
         "stream_options": {"include_usage": True},
     }
+    # Some gateway models (e.g. Bedrock-backed claude-opus-4-8) 400 on temperature.
+    if entry.send_temperature:
+        payload["temperature"] = run.temperature
     if run.ignore_eos:
         payload["ignore_eos"] = True
     if prompt.tools:

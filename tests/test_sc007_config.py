@@ -487,6 +487,15 @@ def test_init_command_scaffolds_dirs_and_starter_config(tmp_path: Path) -> None:
     assert quality_library.prompts
     assert all(prompt.expected_output for prompt in quality_library.prompts)
 
+    # prompts/code-quality.yaml is the code-focused variant: coding tasks, all with
+    # a canonical expected_output.
+    code_quality_file = config_dir / "prompts" / "code-quality.yaml"
+    assert code_quality_file.is_file()
+    code_quality_library = load_prompts(code_quality_file)
+    assert code_quality_library.prompts
+    assert all(prompt.expected_output for prompt in code_quality_library.prompts)
+    assert all(prompt.category == "coding" for prompt in code_quality_library.prompts)
+
     # A starter dashboards/default.yaml is scaffolded and parses.
     assert dashboard_file.is_file()
     from llm_bench.dashboards import parse_dashboard  # noqa: PLC0415
