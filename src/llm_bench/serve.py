@@ -835,7 +835,8 @@ def build_run_page(config_path: Path | None, prompts_dir: Path | None, runs_coun
         for p in profiles
     )
     prompt_options = "<option value=''>built-in default</option>" + "".join(
-        f"<option value='{escape(name)}'>{escape(name)}</option>" for name in list_prompt_files(prompts_dir)
+        f"<option value='{escape(Path(f).stem)}'>{escape(Path(f).stem)}</option>"
+        for f in list_prompt_files(prompts_dir)
     )
     body = (
         "<h1>Run a benchmark</h1>"
@@ -920,18 +921,18 @@ def build_prompts_page(prompts_dir: Path | None, runs_count: int) -> str:
         inner = "<p class='empty'>No prompts directory configured.</p>"
         return _shell("prompts", f"<h1>Prompts</h1>{inner}", runs_count)
 
-    files = list_prompt_files(prompts_dir)
-    options = "".join(f"<option value='{escape(name)}'>{escape(name)}</option>" for name in files)
+    stems = [Path(f).stem for f in list_prompt_files(prompts_dir)]
+    options = "".join(f"<option value='{escape(s)}'>{escape(s)}</option>" for s in stems)
     hint = escape(str(prompts_dir))
     body = (
         "<h1>Prompts</h1>"
-        f"<p class='note'>Files in <code>{hint}</code>. Pick a file to edit it as a form (one card per prompt, "
+        f"<p class='note'>Profiles in <code>{hint}</code>. Pick one to edit it as a form (one card per prompt, "
         "add/remove prompts and messages), or type a new name. Save rebuilds and validates the YAML.</p>"
         "<div class='row'>"
-        f"<div class='fld'>{_label('Prompts')}<select id='pfile' onchange='loadPrompt()'>"
-        f"<option value=''>— choose a file —</option>{options}</select></div>"
-        "<div class='fld'><label>New file name</label>"
-        "<input id='pnew' placeholder='e.g. tools.yaml' size='18'></div>"
+        "<div class='fld'><label>Choose a Prompt Profile</label><select id='pfile' onchange='loadPrompt()'>"
+        f"<option value=''>— choose a profile —</option>{options}</select></div>"
+        "<div class='fld'><label>New profile name</label>"
+        "<input id='pnew' placeholder='e.g. tools' size='18'></div>"
         "</div>"
         "<div id='cards'></div>"
         "<button class='mini' type='button' onclick='addPrompt()'>+ Add prompt</button>"

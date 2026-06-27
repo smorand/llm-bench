@@ -431,8 +431,10 @@ def test_build_prompts_page_has_structured_editor(tmp_path: Path) -> None:
     pdir = _prompts_dir(tmp_path)
     page = build_prompts_page(pdir, runs_count=0)
     assert ">Prompts<" in page  # active tab
-    assert "value='short.yaml'" in page
-    assert "id='pnew'" in page  # new file name field
+    assert "Choose a Prompt Profile" in page
+    assert "value='short'" in page  # extension stripped in the picker
+    assert "value='short.yaml'" not in page
+    assert "id='pnew'" in page  # new profile name field
     assert "id='cards'" in page  # the per-prompt card container
     assert "Add prompt" in page
     assert "onclick='savePrompt()'" in page
@@ -484,10 +486,11 @@ def test_run_tab_prompts_selector_and_parse(tmp_path: Path) -> None:
     pdir = _prompts_dir(tmp_path)
     page = build_run_page(config, pdir, runs_count=0)
     assert "name='prompts'" in page
-    assert "value='short.yaml'" in page
+    assert "value='short'" in page  # extension stripped
     assert "built-in default" in page
 
-    form = {"model": ["ibm-haiku"], "mode": ["closed"], "c": ["1"], "prompts": ["short.yaml"]}
+    # the picker submits a stem; parsing resolves it to the .yaml path
+    form = {"model": ["ibm-haiku"], "mode": ["closed"], "c": ["1"], "prompts": ["short"]}
     req = parse_run_form(form, {"ibm-haiku"}, pdir)
     assert req.prompts == str(pdir / "short.yaml")
     # the resolved path flows into the launch argv
