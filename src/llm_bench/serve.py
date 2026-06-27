@@ -98,7 +98,7 @@ _FIELD_INFO: dict[str, str] = {
     "Quality eval": "Optional output-quality scoring (async, never perturbs timing). 'embedding' = cosine vs the prompt's expected_output; 'judge' = an LLM grades it. Both fill the quality_score (0..1) metric. Only prompts that declare an expected_output are scored.",
     "Judge model": "Which registry model grades the answers. '— from config —' keeps evaluation.judge.model; otherwise the chosen model's endpoint/key are used as the judge.",
     "Judge rubric": "How the judge scores: 'score' = the model returns a 0..1 number; 'three_level' = correct/partial/incorrect; 'binary' = pass/fail (categorical verdicts are mapped to 0..1 too).",
-    "Embedding model": "Which registry model provides embeddings. It must serve an OpenAI-style /v1/embeddings endpoint (most chat-only gateways do not). '— from config —' keeps evaluation.embedding.",
+    "Embedding model": "How to embed for cosine scoring. 'local · CPU/GPU' = built-in fastembed (no server to run; downloads the model once). Or a registry model that serves /v1/embeddings (most chat gateways do not). '— from config —' keeps evaluation.embedding.",
 }
 
 
@@ -842,6 +842,11 @@ def build_run_page(config_path: Path | None, prompts_dir: Path | None, runs_coun
         f"<option value='{escape(m['name'])}'>{escape(m['name'])} · {escape(m['model'])}</option>" for m in models
     )
     eval_model_options = "<option value=''>— from config —</option>" + model_options
+    embed_model_options = (
+        "<option value=''>— from config —</option>"
+        "<option value='local:cpu'>local · CPU (bge-small)</option>"
+        "<option value='local:gpu'>local · GPU (bge-large)</option>" + model_options
+    )
     profiles, profile_default = slo_profile_options(config_path)
     profile_options = "".join(
         f"<option value='{escape(p)}'{' selected' if p == profile_default else ''}>{escape(p)}</option>"
@@ -878,7 +883,7 @@ def build_run_page(config_path: Path | None, prompts_dir: Path | None, runs_coun
         "<option value='three_level'>three_level</option><option value='binary'>binary</option></select></div>"
         "</div>"
         "<div class='row' id='eval-embedding' style='display:none'>"
-        f"<div class='fld'>{_label('Embedding model')}<select name='embedding_model'>{eval_model_options}</select></div>"
+        f"<div class='fld'>{_label('Embedding model')}<select name='embedding_model'>{embed_model_options}</select></div>"
         "</div>"
         "<div class='row'>"
         f"<div class='fld'>{_label('Max tokens')}<input name='max_tokens' type='number' min='1' placeholder='config' size='8'></div>"

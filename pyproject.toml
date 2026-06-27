@@ -21,6 +21,7 @@ dependencies = [
     "plotly>=5.24.0",
     "jinja2>=3.1.0",
     "numpy>=2.1.0",
+    "fastembed>=0.4.0",
     "opentelemetry-api>=1.29.0",
     "opentelemetry-sdk>=1.29.0",
     "opentelemetry-instrumentation-httpx>=0.50b0",

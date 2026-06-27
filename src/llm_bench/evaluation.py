@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from llm_bench import metrics
+from llm_bench import local_embed, metrics
 from llm_bench.tracing import trace_span
 
 if TYPE_CHECKING:
@@ -280,7 +280,11 @@ class EvalPipeline:
         if embedding is None or embedding.threshold is None:  # pragma: no cover - guarded by FR-003
             return EvalResult(eval_status=EVAL_SKIPPED)
         await self._rate_limiter.acquire()
-        vectors = await self._embed_call(embedding, [record.expected, record.actual])
+        inputs = [record.expected, record.actual]
+        if embedding.local:
+            vectors = await self._embed_local(embedding.local, inputs)
+        else:
+            vectors = await self._embed_call(embedding, inputs)
         sim = metrics.cosine_similarity(vectors[0], vectors[1])
         return EvalResult(
             eval_status=EVAL_JUDGED,
@@ -304,6 +308,15 @@ class EvalPipeline:
         response.raise_for_status()
         data = response.json().get("data", [])
         return [list(item.get("embedding", [])) for item in data]
+
+    async def _embed_local(self, preset: str, inputs: list[str]) -> list[list[float]]:
+        """Embed in-process with the built-in fastembed model (off the event loop)."""
+        with trace_span(
+            "eval.embedding",
+            attributes={"llm.model": f"local:{preset}", "llm.inputs": len(inputs)},
+            tracer=self._tracer,
+        ):
+            return await asyncio.to_thread(local_embed.embed_texts, inputs, preset)
 
     # -- judge scoring --------------------------------------------------------
 

@@ -225,6 +225,13 @@ def test_parse_run_form_eval_method(tmp_path: Path) -> None:
         parse_run_form({"model": ["m"], "mode": ["closed"], "c": ["1"], "eval_method": ["bogus"]}, {"m"}, pdir)
 
 
+def test_run_page_local_embedding_presets(tmp_path: Path) -> None:
+    """The embedding selector offers built-in local CPU/GPU presets."""
+    page = build_run_page(_write_config(tmp_path), None, runs_count=0)
+    assert "value='local:cpu'" in page
+    assert "value='local:gpu'" in page
+
+
 def test_run_page_eval_model_selectors(tmp_path: Path) -> None:
     """The Run tab exposes judge-model / judge-rubric / embedding-model selectors."""
     config = _write_config(tmp_path)

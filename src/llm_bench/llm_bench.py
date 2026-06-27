@@ -43,6 +43,7 @@ from llm_bench.config import (
     load_config,
     scaffold_config,
 )
+from llm_bench.local_embed import LOCAL_PRESETS
 from llm_bench.prompts import EmptyPromptSetError, PromptError, PromptLibrary, builtin_library, load_prompts
 from llm_bench.runner import (
     PreflightAbort,
@@ -218,7 +219,8 @@ def run(
     embedding_model: Annotated[
         str | None,
         typer.Option(
-            "--embedding-model", help="Registry model to use as the embeddings endpoint (must serve /v1/embeddings)."
+            "--embedding-model",
+            help="Embeddings backend: 'local:cpu' / 'local:gpu' (built-in), or a registry model serving /v1/embeddings.",
         ),
     ] = None,
 ) -> None:
@@ -349,17 +351,28 @@ def _apply_eval_overrides_or_exit(
         evaluation.judge = JudgeConfig(model=model, rubric=rubric)  # type: ignore[arg-type]
 
     if embedding_model:
-        entry = _eval_entry_or_exit(bench_config, embedding_model)
         existing_embed = evaluation.embedding
-        evaluation.embedding = EmbeddingConfig(
-            url=entry.base_url,
-            model=entry.model,
-            api_key=entry.api_key,
-            threshold=existing_embed.threshold
+        threshold = (
+            existing_embed.threshold
             if existing_embed and existing_embed.threshold is not None
-            else _DEFAULT_EMBED_THRESHOLD,
-            rate_limit=existing_embed.rate_limit if existing_embed else None,
+            else _DEFAULT_EMBED_THRESHOLD
         )
+        rate_limit = existing_embed.rate_limit if existing_embed else None
+        if embedding_model.startswith("local:"):
+            preset = embedding_model.split(":", 1)[1]
+            if preset not in LOCAL_PRESETS:
+                typer.echo(f"unknown local embedding preset: {preset!r} (use {list(LOCAL_PRESETS)})", err=True)
+                raise typer.Exit(2)
+            evaluation.embedding = EmbeddingConfig(local=preset, threshold=threshold, rate_limit=rate_limit)
+        else:
+            entry = _eval_entry_or_exit(bench_config, embedding_model)
+            evaluation.embedding = EmbeddingConfig(
+                url=entry.base_url,
+                model=entry.model,
+                api_key=entry.api_key,
+                threshold=threshold,
+                rate_limit=rate_limit,
+            )
 
     bench_config.evaluation = evaluation
 

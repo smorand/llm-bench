@@ -3,7 +3,7 @@
 ## Overview
 `llm-bench` is a Python 3.13 asyncio CLI that benchmarks the performance and optionally the output quality of OpenAI-compatible LLM endpoints. It measures latency (TTFT, TPOT, ITL, E2E), throughput, reliability, goodput, and cost, with closed-loop and open-loop load models, and an asynchronous quality-evaluation pipeline (embedding cosine, optional LLM-as-judge). Results are persisted as JSONL/Parquet and rendered as a rich terminal summary and a local browser view (`serve`).
 
-Tech stack: Python 3.13, uv, Typer, httpx (async streaming), pydantic / pydantic-settings, DuckDB, pyarrow, stdlib http.server (serve), rich, numpy, OpenTelemetry.
+Tech stack: Python 3.13, uv, Typer, httpx (async streaming), pydantic / pydantic-settings, DuckDB, pyarrow, stdlib http.server (serve), fastembed (local eval embeddings), rich, numpy, OpenTelemetry.
 
 ## Key Commands
 ```
@@ -19,7 +19,8 @@ NEVER run `uv run pytest`/`ruff`/`mypy` directly; always use the `make` targets.
 - `src/llm_bench/llm_bench.py` : Typer CLI entry point (`run`, `serve`, `models`, `init`; `analyze` hidden)
 - `src/llm_bench/config.py` : configuration schema, `$ENV:` interpolation, model registry, SLO profiles, evaluation block + `--eval-method` selection (FR-003)
 - `src/llm_bench/runner.py` : closed/open-loop load engine, per-request records, artifact persistence, eval enqueue + publish-then-backfill orchestration
-- `src/llm_bench/evaluation.py` : async eval pipeline (bounded queue, rate-limited worker pool, embedding cosine / judge rubric, global-timeout coverage) joined on `request_id` (SC-004, FR-040..047)
+- `src/llm_bench/evaluation.py` : async eval pipeline (bounded queue, rate-limited worker pool, embedding cosine / judge rubric incl. `score` 0..1, unified `quality_score`, global-timeout coverage) joined on `request_id` (SC-004, FR-040..047)
+- `src/llm_bench/local_embed.py` : built-in local embeddings (fastembed/ONNX) for `embedding.local: cpu|gpu` (no embeddings server); lazy, memoised
 - `src/llm_bench/metrics.py` : per-request metrics, percentiles, throughput, goodput, cost, `cosine_similarity`
 - `src/llm_bench/prompts.py` : built-in + external prompt library, seeded selection, cache-busting, capability gating (FR-033..039)
 - `src/llm_bench/serve.py` : local web server (`serve`), IBM Carbon UI, three tabs - Dashboards (home `/`; dashboard-file + run pickers, renders custom panels as interactive SVG charts where clicking a point/bar shows its value; form editor; defaults to `default` over newest run; file names shown without `.yaml`), Run (model + mode + load presets + prompts-file + tuning form -> launches a benchmark subprocess with a live progress bar), Prompts (structured per-prompt form editor — cards with add/remove prompts/messages — `prompts_to_form`/`build_prompts_yaml`, validated on save); `_svg_line_chart`/`_svg_bar_chart`, `RunRequest`/`parse_run_form`, `JobRegistry`

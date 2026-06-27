@@ -86,3 +86,21 @@ def test_eval_override_rejects_unknown_model_and_rubric() -> None:
         _apply_eval_overrides_or_exit(cfg, judge_model="ghost", judge_rubric=None, embedding_model=None)
     with pytest.raises(typer.Exit):
         _apply_eval_overrides_or_exit(cfg, judge_model="grader", judge_rubric="bogus", embedding_model=None)
+
+
+def test_embedding_local_override_builds_local_block() -> None:
+    """--embedding-model local:cpu uses the built-in embedder (no url, default threshold)."""
+    cfg = _two_model_config()
+    _apply_eval_overrides_or_exit(cfg, judge_model=None, judge_rubric=None, embedding_model="local:cpu")
+    assert cfg.evaluation is not None and cfg.evaluation.embedding is not None
+    emb = cfg.evaluation.embedding
+    assert emb.local == "cpu"
+    assert emb.url is None
+    assert emb.threshold == 0.8
+
+
+def test_embedding_local_rejects_bad_preset() -> None:
+    """An unknown local preset exits non-zero."""
+    cfg = _two_model_config()
+    with pytest.raises(typer.Exit):
+        _apply_eval_overrides_or_exit(cfg, judge_model=None, judge_rubric=None, embedding_model="local:bogus")

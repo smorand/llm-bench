@@ -163,8 +163,9 @@ evaluation:
   method: none                        # none | embedding | judge (or pick via --eval-method)
   global_timeout: 60s
   embedding:
-    url: http://localhost:8001/v1     # omit to use a local embedding model
-    model: text-embedding-3-small
+    local: cpu                        # built-in local embedder: cpu (bge-small) or gpu (bge-large); no server to run
+    # url: http://localhost:8001/v1   # or point at an OpenAI-style /v1/embeddings endpoint and set model:
+    # model: text-embedding-3-small
     threshold: 0.80                   # mandatory for the embedding method
     rate_limit: 20
   judge:
@@ -552,7 +553,8 @@ class EmbeddingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     url: str | None = None
-    model: str
+    model: str | None = None  # remote embedding model id (not needed for a local preset)
+    local: str | None = None  # built-in local embedder preset: "cpu" or "gpu"
     api_key: str | None = None
     threshold: float | None = None
     rate_limit: float | None = None
