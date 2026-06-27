@@ -329,8 +329,10 @@ def test_job_phase_eval_and_list_jobs(tmp_path: Path, monkeypatch: pytest.Monkey
     job_id = registry.start(RunRequest(model="ibm-haiku", load="1", eval_method="embedding"))
     job = registry._jobs[job_id]
 
-    # load phase: no eval marker yet
-    assert registry.status(job_id)["phase"] == "load"
+    # load phase: no eval marker yet, but the job declares a quality eval will run
+    load = registry.status(job_id)
+    assert load["phase"] == "load"
+    assert load["eval"] is True
     # quality phase: the runner has logged it started draining the eval queue
     (job["out_dir"] / "launch.log").write_text("INFO run_started\nINFO eval_started\n", encoding="utf-8")
     running = registry.status(job_id)

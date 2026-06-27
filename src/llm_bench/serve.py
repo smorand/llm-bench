@@ -634,6 +634,7 @@ class JobRegistry:
                 "model": req.model,
                 "started": time.monotonic(),
                 "estimate": estimate_run_seconds(self._config_path, req),
+                "eval": bool(req.eval_method),
             }
         return job_id
 
@@ -654,6 +655,7 @@ class JobRegistry:
             return {
                 "state": "running",
                 "phase": "eval" if in_eval else "load",
+                "eval": bool(job.get("eval")),
                 "pct": round(load_pct, 1),
                 "elapsed": round(elapsed),
                 "estimate": round(estimate),
@@ -968,7 +970,11 @@ function jobRow(j){
     html += ev ? "scoring quality…" : ("running · " + Math.round(j.pct||0) + "% · " + (j.elapsed||0) + "s/~" + (j.estimate||0) + "s");
     html += "</div>";
     html += "<div class='barlabel'>Load</div><div class='bar'><span style='width:" + (j.pct||0) + "%'></span></div>";
-    if(ev){ html += "<div class='barlabel'>Quality eval</div><div class='bar'><span class='indet'></span></div>"; }
+    if(j.eval){
+      // Quality eval runs after the load sweep: show it pending during load, animated during the drain.
+      html += "<div class='barlabel'>Quality eval" + (ev ? "" : " · pending (runs after load)") + "</div>";
+      html += ev ? "<div class='bar'><span class='indet'></span></div>" : "<div class='bar'></div>";
+    }
   } else if(j.state === 'done'){
     html += "done · <a href='/?run=" + encodeURIComponent(j.run) + "'>open in Dashboards</a></div>";
   } else if(j.state === 'failed'){
