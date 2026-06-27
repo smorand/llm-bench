@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from llm_bench.dashboards import (
+    METRICS,
     STARTER_DASHBOARD,
     DashboardError,
     build_dashboard_yaml,
@@ -98,6 +99,18 @@ def test_compute_panel_categorical_x_is_bar() -> None:
     result = compute_panel(records, panel)
     assert result.chart == "bar"
     assert result.x_values == ["short", "medium", "long"]  # bucket order, not alphabetic
+
+
+def test_quality_score_is_a_metric() -> None:
+    """quality_score is exposed as a value metric and pivots like the others."""
+    assert "quality_score" in METRICS
+    records = [
+        {"level_or_rate": 1, "quality_score": 1.0},
+        {"level_or_rate": 1, "quality_score": 0.0},
+    ]
+    panel = parse_dashboard("- {title: Q, x: level_or_rate, values: [{metric: quality_score, agg: mean}]}")[0]
+    result = compute_panel(records, panel)
+    assert result.series[0]["values"] == [0.5]
 
 
 def test_compute_panel_derived_throughput() -> None:

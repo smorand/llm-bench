@@ -174,6 +174,7 @@ class RequestRecord:
     itl_list: list[float] = field(default_factory=list)
     # Asynchronous evaluation fields (SC-004); backfilled after the perf summary.
     sim_score: float | None = None
+    quality_score: float | None = None
     quality_pass: bool | None = None
     judge_verdict: str | None = None
     judge_reason: str | None = None
@@ -1482,6 +1483,7 @@ def _backfill_eval(context: RunContext, results: dict[str, Any], dropped: int) -
         if result is not None:
             record.eval_status = result.eval_status
             record.sim_score = result.sim_score
+            record.quality_score = result.quality_score
             record.quality_pass = result.quality_pass
             record.judge_verdict = result.judge_verdict
             record.judge_reason = result.judge_reason

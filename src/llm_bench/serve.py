@@ -95,6 +95,7 @@ _FIELD_INFO: dict[str, str] = {
     "SLO profile": "Threshold set (TTFT / TPOT / E2E) used to compute goodput. 'interactive' is strict, 'relaxed' is lenient.",
     "Seed": "Seed for reproducible prompt selection: the same seed replays the same prompt sequence.",
     "Prompts": "Which prompt library to send. Pick a file from ~/.config/llm-bench/prompts/, or the built-in default. Manage files in the Prompts tab.",
+    "Quality eval": "Optional output-quality scoring (async, never perturbs timing). 'embedding' = cosine vs the prompt's expected_output; 'judge' = an LLM grades it (rubric from the config's evaluation.judge block). Both fill the quality_score metric. Requires an 'evaluation' block in config.yaml.",
 }
 
 
@@ -111,6 +112,7 @@ class RunRequest:
     slo_profile: str = ""
     seed: str = ""
     prompts: str = ""  # absolute path to a prompts file, or "" for the default library
+    eval_method: str = ""  # "", "embedding", or "judge"
 
 
 def _info(label: str, infos: dict[str, str]) -> str:
@@ -569,6 +571,7 @@ def build_run_command(config_path: Path | None, req: RunRequest, out_dir: Path) 
         ("--slo-profile", req.slo_profile),
         ("--seed", req.seed),
         ("--prompts", req.prompts),
+        ("--eval-method", req.eval_method),
     ):
         if value:
             cmd += [flag, value]
@@ -855,6 +858,9 @@ def build_run_page(config_path: Path | None, prompts_dir: Path | None, runs_coun
         "<input name='r_manual' placeholder='extra req/s, comma-separated e.g. 7,15' size='28'></div>"
         f"<div class='fld'>{_label('Duration')}{_duration_select()}</div>"
         f"<div class='fld'>{_label('Prompts')}<select name='prompts'>{prompt_options}</select></div>"
+        f"<div class='fld'>{_label('Quality eval')}<select name='eval_method'>"
+        "<option value=''>none</option><option value='embedding'>embedding (cosine)</option>"
+        "<option value='judge'>judge (model)</option></select></div>"
         "<div class='row'>"
         f"<div class='fld'>{_label('Max tokens')}<input name='max_tokens' type='number' min='1' placeholder='config' size='8'></div>"
         f"<div class='fld'>{_label('Temperature')}<input name='temperature' type='number' min='0' step='0.1' placeholder='config' size='8'></div>"
@@ -1274,6 +1280,10 @@ def parse_run_form(form: dict[str, list[str]], known_models: set[str], prompts_d
             raise ReportServeError(f"prompts file not found: {prompts_name}")
         prompts_path = str(target)
 
+    eval_method = form.get("eval_method", [""])[0].strip()
+    if eval_method and eval_method not in {"embedding", "judge"}:
+        raise ReportServeError(f"invalid eval method: {eval_method!r}")
+
     return RunRequest(
         model=model,
         mode=mode,
@@ -1284,6 +1294,7 @@ def parse_run_form(form: dict[str, list[str]], known_models: set[str], prompts_d
         slo_profile=form.get("slo_profile", [""])[0].strip(),
         seed=form.get("seed", [""])[0].strip(),
         prompts=prompts_path,
+        eval_method=eval_method,
     )
 
 

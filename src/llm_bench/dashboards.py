@@ -54,6 +54,7 @@ _METRICS: dict[str, tuple[str, float, str]] = {
     "cached_tokens": ("cached_tokens", 1.0, "tok"),
     "reasoning_tokens": ("reasoning_tokens", 1.0, "tok"),
     "cost_usd": ("cost_usd", 1.0, "usd"),
+    "quality_score": ("quality_score", 1.0, "score"),
     "sim_score": ("sim_score", 1.0, "score"),
 }
 # Derived throughput rates computed over each group's steady window (agg ignored).
@@ -96,7 +97,8 @@ METRIC_HELP: dict[str, str] = {
     "cached_tokens": "Prompt tokens served from the provider's cache (when reported).",
     "reasoning_tokens": "Reasoning / thinking tokens (when the model reports them).",
     "cost_usd": "Estimated cost per request (only non-zero when the model has pricing in the config).",
-    "sim_score": "Embedding cosine similarity of the answer to the prompt's expected_output (quality eval).",
+    "quality_score": "Quality eval, 0..1: embedding cosine, the judge model's compliance score (rubric 'score'), or a mapping of its verdict. Only set when --eval-method ran.",
+    "sim_score": "Raw embedding cosine similarity (0..1) of the answer to expected_output. Only set in embedding mode.",
     "rps": "Requests per second over the x-group's steady window. A rate, so the chosen aggregation is ignored.",
     "system_tok_s": "Aggregate output tokens/second across concurrent requests (server capacity). A rate; aggregation ignored.",
 }

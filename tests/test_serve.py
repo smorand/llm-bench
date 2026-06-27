@@ -188,12 +188,27 @@ def test_list_config_models_none_or_bad(tmp_path: Path) -> None:
 
 
 def test_build_run_page_lists_models(tmp_path: Path) -> None:
-    """The Run tab renders a model picker and the start button."""
+    """The Run tab renders a model picker, the quality-eval selector, and Start."""
     config = _write_config(tmp_path)
     page = build_run_page(config, None, runs_count=0)
     assert "Run a benchmark" in page
     assert "value='ibm-haiku'" in page
+    assert "name='eval_method'" in page  # quality eval selector
+    assert "embedding (cosine)" in page and "judge (model)" in page
     assert "Start run" in page
+
+
+def test_parse_run_form_eval_method(tmp_path: Path) -> None:
+    """A chosen quality-eval method flows into the request and the launch argv."""
+    pdir = _prompts_dir(tmp_path)
+    form = {"model": ["m"], "mode": ["closed"], "c": ["1"], "eval_method": ["judge"]}
+    req = parse_run_form(form, {"m"}, pdir)
+    assert req.eval_method == "judge"
+    cmd = build_run_command(None, req, tmp_path / "out")
+    assert cmd[cmd.index("--eval-method") + 1] == "judge"
+    # an invalid method is rejected
+    with pytest.raises(ReportServeError, match="invalid eval method"):
+        parse_run_form({"model": ["m"], "mode": ["closed"], "c": ["1"], "eval_method": ["bogus"]}, {"m"}, pdir)
 
 
 def test_build_run_page_without_models(tmp_path: Path) -> None:

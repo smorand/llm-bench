@@ -102,6 +102,9 @@ class EvalResult:
     quality_pass: bool | None = None
     judge_verdict: str | None = None
     judge_reason: str | None = None
+    # Unified 0..1 quality score (embedding cosine, judge 'score' rubric, or a
+    # mapping of the categorical verdict) for use as a dashboard metric.
+    quality_score: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +285,7 @@ class EvalPipeline:
         return EvalResult(
             eval_status=EVAL_JUDGED,
             sim_score=sim,
+            quality_score=sim,
             quality_pass=sim >= embedding.threshold,
         )
 
@@ -304,17 +308,31 @@ class EvalPipeline:
     # -- judge scoring --------------------------------------------------------
 
     async def _judge(self, record: EvalRecord) -> EvalResult:
-        """Grade the output with the judge model using the configured rubric (FR-044)."""
+        """Grade the output with the judge model using the configured rubric (FR-044).
+
+        ``score`` rubric: the model returns a 0..1 compliance score, stored as
+        ``quality_score``. ``binary`` / ``three_level``: a categorical verdict,
+        also mapped to a 0..1 ``quality_score`` so dashboards have one metric.
+        """
         judge = self._evaluation.judge
         if judge is None:  # pragma: no cover - guarded by config selection
             return EvalResult(eval_status=EVAL_SKIPPED)
         await self._rate_limiter.acquire()
-        verdict, reason = await self._judge_call(judge, record)
+        body = await self._judge_call(judge, record)
+        if judge.rubric == "score":
+            score, reason = _parse_judge_score(body)
+            return EvalResult(eval_status=EVAL_JUDGED, quality_score=score, judge_reason=reason)
+        verdict, reason = _parse_judge_reply(body)
         normalized = _normalize_verdict(verdict, judge.rubric)
-        return EvalResult(eval_status=EVAL_JUDGED, judge_verdict=normalized, judge_reason=reason)
+        return EvalResult(
+            eval_status=EVAL_JUDGED,
+            judge_verdict=normalized,
+            judge_reason=reason,
+            quality_score=_verdict_to_score(normalized, judge.rubric),
+        )
 
-    async def _judge_call(self, judge: Any, record: EvalRecord) -> tuple[str, str]:
-        """POST a grading request and parse the verdict / reason from the reply."""
+    async def _judge_call(self, judge: Any, record: EvalRecord) -> dict[str, Any]:
+        """POST a grading request and return the parsed chat-completion reply body."""
         client = self._require_client()
         model = judge.model
         url = f"{str(model.url).rstrip('/')}/chat/completions"
@@ -327,7 +345,8 @@ class EvalPipeline:
         ):
             response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        return _parse_judge_reply(response.json())
+        result: dict[str, Any] = response.json()
+        return result
 
     # -- endpoint / timeout bookkeeping --------------------------------------
 
@@ -384,12 +403,18 @@ def _bearer(api_key: str | None) -> dict[str, str]:
 
 def _judge_payload(model: str, prompt: str | None, record: EvalRecord, rubric: str) -> dict[str, Any]:
     """Build the judge chat-completion request body for one record (FR-044)."""
-    vocabulary = "correct, partial, or incorrect" if rubric == "three_level" else "pass or fail"
     instruction = prompt or "Grade the answer against the expected output."
-    system = (
-        f'{instruction} Respond with a JSON object {{"verdict", "reason"}} where verdict is '
-        f"one of {vocabulary}. Do not use any numeric score."
-    )
+    if rubric == "score":
+        system = (
+            f'{instruction} Respond with a JSON object {{"score", "reason"}} where score is a '
+            "single compliance number between 0 and 1 (0 = wrong, 1 = fully correct)."
+        )
+    else:
+        vocabulary = "correct, partial, or incorrect" if rubric == "three_level" else "pass or fail"
+        system = (
+            f'{instruction} Respond with a JSON object {{"verdict", "reason"}} where verdict is '
+            f"one of {vocabulary}. Do not use any numeric score."
+        )
     user = json.dumps({"expected": record.expected, "actual": record.actual})
     return {
         "model": model,
@@ -400,6 +425,47 @@ def _judge_payload(model: str, prompt: str | None, record: EvalRecord, rubric: s
         "temperature": 0.0,
         "stream": False,
     }
+
+
+# Categorical verdicts mapped to a 0..1 quality score for the unified metric.
+_VERDICT_SCORE: dict[str, float] = {
+    "pass": 1.0,  # nosec B105  ('pass' is a judge verdict, not a password)
+    "fail": 0.0,
+    "correct": 1.0,
+    "partial": 0.5,
+    "incorrect": 0.0,
+}
+
+
+def _verdict_to_score(verdict: str, _rubric: str) -> float:
+    """Map a normalized categorical verdict to a 0..1 quality score."""
+    return _VERDICT_SCORE.get(verdict, 0.0)
+
+
+def _judge_content(body: dict[str, Any]) -> str:
+    """Return the assistant message content from a chat-completion reply."""
+    choices = body.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        message = choices[0].get("message")
+        if isinstance(message, dict):
+            return str(message.get("content", ""))
+    return ""
+
+
+def _parse_judge_score(body: dict[str, Any]) -> tuple[float, str]:
+    """Extract a clamped 0..1 ``(score, reason)`` from a judge 'score' reply."""
+    content = _judge_content(body)
+    try:
+        parsed = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        parsed = None
+    raw_score: Any = parsed.get("score") if isinstance(parsed, dict) else content
+    reason = str(parsed.get("reason", "")).strip() if isinstance(parsed, dict) else content.strip()
+    try:
+        score = float(raw_score)
+    except (TypeError, ValueError):
+        score = 0.0
+    return max(0.0, min(1.0, score)), reason
 
 
 def _parse_judge_reply(body: dict[str, Any]) -> tuple[str, str]:

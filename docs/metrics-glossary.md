@@ -21,8 +21,9 @@ Operator-facing definitions of every term `llm-bench` reports. Mirrors Section 1
 | ISL / OSL | Input / Output Sequence Length buckets (short / medium / long). | Dimensions |
 | SUT | System Under Test: the model endpoint being benchmarked. | Benchmark |
 | SLO profile | A named set of latency thresholds (`interactive`, `relaxed`) used to compute goodput. | Configuration |
-| LLM-as-judge | Scoring output quality with a separate judge model, graded on a binary or three-level rubric (never a numeric score). | Evaluation |
+| LLM-as-judge | Scoring output quality with a separate judge model: a `binary`/`three_level` verdict, or a `score` rubric where the model returns a 0..1 compliance number. | Evaluation |
 | Embedding cosine | Semantic similarity of expected vs actual output via embedding vectors, compared against an inclusive threshold. | Evaluation |
+| quality_score | Unified 0..1 quality metric (embedding cosine, the judge's score, or its verdict mapped to 0..1); charted in the Dashboards tab. | Evaluation |
 | Coverage | Fraction of eligible requests actually evaluated (`judged / eligible`). | Evaluation |
 
 ## Percentiles and reliability

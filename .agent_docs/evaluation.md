@@ -14,8 +14,11 @@ The worker pool has its own `asyncio.Semaphore`-style pacing (`_RateLimiter`) ag
 
 ## Methods
 
-- **Embedding (default).** Both `expected` and `actual` are embedded via `<url>/embeddings`; cosine similarity (`metrics.cosine_similarity`, `0.0` on a zero vector) is compared against the inclusive `threshold`. The record gets `sim_score` and `quality_pass = sim >= threshold`. The threshold is mandatory; its absence aborts at config stage.
-- **Judge (LLM-as-judge).** A grading request goes to `<judge.model.url>/chat/completions` asking for a JSON `{verdict, reason}`. The verdict is normalized into the rubric vocabulary: `binary` -> `pass`/`fail`, `three_level` -> `correct`/`partial`/`incorrect`. Out-of-vocabulary or numeric replies map to the negative pole; **no numeric 1-10 score is ever produced**. The record gets `judge_verdict` and `judge_reason`.
+- **Embedding (default).** Both `expected` and `actual` are embedded via `<url>/embeddings`; cosine similarity (`metrics.cosine_similarity`, `0.0` on a zero vector) is compared against the inclusive `threshold`. The record gets `sim_score`, `quality_score = sim`, and `quality_pass = sim >= threshold`. The threshold is mandatory; its absence aborts at config stage.
+- **Judge (LLM-as-judge).** A grading request goes to `<judge.model.url>/chat/completions`. Two rubric families:
+  - `binary` / `three_level` ask for a JSON `{verdict, reason}`; the verdict is normalized (`pass`/`fail` or `correct`/`partial`/`incorrect`) and stored as `judge_verdict` + `judge_reason`, and also mapped to a 0..1 `quality_score` (pass/correct = 1, partial = 0.5, fail/incorrect = 0).
+  - `score` asks for a JSON `{score, reason}` where the model returns a compliance number in 0..1 directly; it is clamped and stored as `quality_score`.
+- **`quality_score` (0..1)** is the unified quality metric across methods (charted in the Dashboards tab); `sim_score` keeps the raw embedding cosine.
 
 ## `eval_status` values
 

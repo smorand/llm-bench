@@ -168,7 +168,7 @@ evaluation:
     threshold: 0.80                   # mandatory for the embedding method
     rate_limit: 20
   judge:
-    rubric: three_level
+    rubric: three_level               # binary | three_level | score (model returns 0..1 -> quality_score)
     model:
       url: $ENV:IBM_ICA_BASE_URL
       api_key: $ENV:IBM_ICA_API_KEY
@@ -538,7 +538,7 @@ class JudgeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: JudgeModel
-    rubric: Literal["binary", "three_level"] = "binary"
+    rubric: Literal["binary", "three_level", "score"] = "binary"
 
 
 class EmbeddingConfig(BaseModel):
