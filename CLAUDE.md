@@ -18,8 +18,8 @@ NEVER run `uv run pytest`/`ruff`/`mypy` directly; always use the `make` targets.
 ## Project Structure
 - `src/llm_bench/llm_bench.py` : Typer CLI entry point (`run`, `serve`, `models`, `init`; `analyze` hidden)
 - `src/llm_bench/config.py` : configuration schema, `$ENV:` interpolation, model registry, SLO profiles, evaluation block + `--eval-method` selection (FR-003)
-- `src/llm_bench/runner.py` : closed/open-loop load engine, per-request records, artifact persistence, eval enqueue + publish-then-backfill orchestration
-- `src/llm_bench/evaluation.py` : async eval pipeline (bounded queue, rate-limited worker pool, embedding cosine / judge rubric incl. `score` 0..1, unified `quality_score`, global-timeout coverage) joined on `request_id` (SC-004, FR-040..047)
+- `src/llm_bench/runner.py` : closed/open-loop load engine, per-request records, artifact persistence, eval enqueue + concurrent draining (eval pool `start()`s before the sweep, `finish()`es after) + backfill orchestration
+- `src/llm_bench/evaluation.py` : async eval pipeline (bounded queue, rate-limited worker pool draining concurrently with the load via `start()`/`finish()`, embedding cosine / judge rubric incl. `score` 0..1, unified `quality_score`, global-timeout tail coverage) joined on `request_id` (SC-004, FR-040..047)
 - `src/llm_bench/local_embed.py` : built-in local embeddings (fastembed/ONNX) for `embedding.local: cpu|gpu` (no embeddings server); lazy, memoised
 - `src/llm_bench/metrics.py` : per-request metrics, percentiles, throughput, goodput, cost, `cosine_similarity`
 - `src/llm_bench/prompts.py` : built-in + external prompt library, seeded selection, cache-busting, capability gating (FR-033..039)

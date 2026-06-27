@@ -322,22 +322,19 @@ def test_job_lifecycle_running_then_done(tmp_path: Path, monkeypatch: pytest.Mon
     assert done["run"] == job["out_dir"].name
 
 
-def test_job_phase_eval_and_list_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """While running, an 'eval_started' marker flips the phase to 'eval'; list_jobs reports it."""
+def test_job_eval_flag_and_list_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A running job with a quality eval reports eval=True so the UI shows the parallel bar."""
     monkeypatch.setattr("llm_bench.serve.subprocess.Popen", lambda *a, **k: _FakeProc())
     registry = JobRegistry(config_path=None)
     job_id = registry.start(RunRequest(model="ibm-haiku", load="1", eval_method="embedding"))
-    job = registry._jobs[job_id]
 
-    # load phase: no eval marker yet, but the job declares a quality eval will run
-    load = registry.status(job_id)
-    assert load["phase"] == "load"
-    assert load["eval"] is True
-    # quality phase: the runner has logged it started draining the eval queue
-    (job["out_dir"] / "launch.log").write_text("INFO run_started\nINFO eval_started\n", encoding="utf-8")
+    # The eval pool drains concurrently with the load, so the quality bar is active
+    # for the whole run; the load bar is never forced to 100% by an eval marker.
     running = registry.status(job_id)
-    assert running["phase"] == "eval"
-    assert running["pct"] == 100.0
+    assert running["state"] == "running"
+    assert running["eval"] is True
+    assert running["pct"] < 100.0
+    assert "phase" not in running
 
     listed = registry.list_jobs()
     assert listed and listed[0]["job"] == job_id

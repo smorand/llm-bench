@@ -176,6 +176,7 @@ class EvalPipeline:
         self._down_warned = False
         self._client: httpx.AsyncClient | None = None
         self._stopping = False
+        self._workers: list[asyncio.Task[None]] = []
 
     @property
     def dropped(self) -> int:
@@ -198,30 +199,46 @@ class EvalPipeline:
             return
         self._pending.add(record.request_id)
 
-    async def drain(self) -> dict[str, EvalResult]:
-        """Drain the queue under the global timeout, returning joined results (FR-045/046).
+    async def start(self) -> None:
+        """Spawn the worker pool so the queue drains concurrently with the load (FR-045).
 
-        Spawns the worker pool, waits for the backlog to clear (or the global
-        timeout to elapse), then marks every still-pending record ``eval_skipped``
-        and reports how many were skipped (FR-046).
+        Workers consume eval records as the load generator enqueues them, so the
+        scoring runs in parallel with the benchmark instead of as a trailing phase.
+        Idempotent: a second call is a no-op.
+        """
+        if self._workers:
+            return
+        self._client = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+        self._workers = [asyncio.create_task(self._worker()) for _ in range(_DEFAULT_WORKERS)]
+
+    async def finish(self) -> dict[str, EvalResult]:
+        """Stop intake, await the remaining backlog, join results (FR-045/046).
+
+        The global timeout bounds only the post-load tail (records still queued
+        when the sweep ends); anything scored during the load already counts.
+        Still-pending records are marked ``eval_skipped`` (FR-046).
         """
         self._stopping = True
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
-            self._client = client
-            await self._drain_with_timeout()
-        self._mark_remaining_skipped()
-        return dict(self._results)
-
-    async def _drain_with_timeout(self) -> None:
-        """Run the workers until the queue is empty or the global timeout fires."""
-        async with asyncio.TaskGroup() as group:
-            workers = [group.create_task(self._worker()) for _ in range(_DEFAULT_WORKERS)]
-            timed_out = await self._await_queue()
-            for worker in workers:
-                worker.cancel()
+        timed_out = await self._await_queue()
+        for worker in self._workers:
+            worker.cancel()
+        for worker in self._workers:
+            with contextlib.suppress(asyncio.CancelledError):
+                await worker
+        self._workers = []
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
         if timed_out:
             remaining = len(self._pending)
             logger.warning("eval global timeout (%s) reached, %d items skipped", self._timeout_label(), remaining)
+        self._mark_remaining_skipped()
+        return dict(self._results)
+
+    async def drain(self) -> dict[str, EvalResult]:
+        """Score the whole backlog start-to-finish (when no concurrent pool was started)."""
+        await self.start()
+        return await self.finish()
 
     async def _await_queue(self) -> bool:
         """Wait for the queue to fully drain, honoring the global timeout.

@@ -53,9 +53,9 @@ config.yaml ──load_config──> BenchConfig ──┐
                                    (consume the run dir; never touch the SUT)
 ```
 
-### Order of operations at run end
+### Eval runs concurrently with the load
 
-The perf summary is published **first** (terminal table + guard summary), then the eval queue is drained and its scores are backfilled onto the records by `request_id`, then the joined artifacts are written. This keeps perf timing independent of eval latency and guarantees perf data is valid even if the eval provider is unreachable.
+The eval worker pool is started (`EvalPipeline.start()`) **before** the load sweep, so it drains the queue **in parallel** with the benchmark as records are enqueued; scoring is not a trailing phase. At run end the perf summary is published **first** (terminal table + guard summary), then `EvalPipeline.finish()` awaits any eval still in flight (the post-load tail, bounded by `global_timeout`) and its scores are backfilled onto the records by `request_id` before the joined artifacts are written. This keeps perf timing independent of eval latency and guarantees perf data is valid even if the eval provider is unreachable. The bounded queue (drop-on-full, FR-041) and the `global_timeout` tail-skip (FR-046) remain the safety valves when eval cannot keep up with the enqueue rate.
 
 ## Eval side channel
 

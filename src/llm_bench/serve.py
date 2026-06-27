@@ -95,7 +95,7 @@ _FIELD_INFO: dict[str, str] = {
     "SLO profile": "Threshold set (TTFT / TPOT / E2E) used to compute goodput. 'interactive' is strict, 'relaxed' is lenient.",
     "Seed": "Seed for reproducible prompt selection: the same seed replays the same prompt sequence.",
     "Prompts": "Which prompt library to send. Pick a file from ~/.config/llm-bench/prompts/, or the built-in default. Manage files in the Prompts tab.",
-    "Quality eval": "Optional output-quality scoring (async, never perturbs timing). 'embedding' = cosine vs the prompt's expected_output; 'judge' = an LLM grades it. Both fill the quality_score (0..1) metric. Only prompts that declare an expected_output are scored.",
+    "Quality eval": "Optional output-quality scoring. Runs in parallel with the load on a rate-limited worker pool (remote judge/embedding = network I/O, ~no impact; local-CPU embedding can slightly perturb timing under heavy load). 'embedding' = cosine vs the prompt's expected_output; 'judge' = an LLM grades it. Both fill the quality_score (0..1) metric. Only prompts that declare an expected_output are scored.",
     "Judge model": "Which registry model grades the answers. '— from config —' keeps evaluation.judge.model; otherwise the chosen model's endpoint/key are used as the judge.",
     "Judge rubric": "How the judge scores: 'score' = the model returns a 0..1 number; 'three_level' = correct/partial/incorrect; 'binary' = pass/fail (categorical verdicts are mapped to 0..1 too).",
     "Embedding model": "How to embed for cosine scoring. 'local · CPU/GPU' = built-in fastembed (no server to run; downloads the model once). Or a registry model that serves /v1/embeddings (most chat gateways do not). '— from config —' keeps evaluation.embedding.",
@@ -649,12 +649,10 @@ class JobRegistry:
         estimate = job["estimate"]
         code = proc.poll()
         if code is None:
-            # Two phases: the load sweep, then the asynchronous quality eval drain.
-            in_eval = "eval_started" in _tail(job["out_dir"] / "launch.log", limit=4000)
-            load_pct = 100.0 if in_eval else (min(99.0, 100.0 * elapsed / estimate) if estimate else 5.0)
+            # The eval pool drains concurrently with the load, so both bars run together.
+            load_pct = min(99.0, 100.0 * elapsed / estimate) if estimate else 5.0
             return {
                 "state": "running",
-                "phase": "eval" if in_eval else "load",
                 "eval": bool(job.get("eval")),
                 "pct": round(load_pct, 1),
                 "elapsed": round(elapsed),
@@ -794,8 +792,7 @@ async function pollRunningBadge(){
     const r = await (await fetch('/run/jobs')).json();
     const running = (r.jobs||[]).filter(x => x.state === 'running');
     if(running.length){
-      const ev = running.some(x => x.phase === 'eval');
-      b.textContent = '▶ ' + running.length + ' run' + (running.length>1?'s':'') + (ev ? ' (scoring quality)' : ' in progress');
+      b.textContent = '▶ ' + running.length + ' run' + (running.length>1?'s':'') + ' in progress';
       b.style.display = 'inline';
       setTimeout(pollRunningBadge, 2000);
     } else { b.style.display = 'none'; setTimeout(pollRunningBadge, 5000); }
@@ -966,14 +963,13 @@ function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;
 function jobRow(j){
   let html = "<div class='jobrow'><div class='jobhead'><b>" + esc(j.model||'run') + "</b> ";
   if(j.state === 'running'){
-    const ev = j.phase === 'eval';
-    html += ev ? "scoring quality…" : ("running · " + Math.round(j.pct||0) + "% · " + (j.elapsed||0) + "s/~" + (j.estimate||0) + "s");
+    html += "running · " + Math.round(j.pct||0) + "% · " + (j.elapsed||0) + "s/~" + (j.estimate||0) + "s";
     html += "</div>";
     html += "<div class='barlabel'>Load</div><div class='bar'><span style='width:" + (j.pct||0) + "%'></span></div>";
     if(j.eval){
-      // Quality eval runs after the load sweep: show it pending during load, animated during the drain.
-      html += "<div class='barlabel'>Quality eval" + (ev ? "" : " · pending (runs after load)") + "</div>";
-      html += ev ? "<div class='bar'><span class='indet'></span></div>" : "<div class='bar'></div>";
+      // Quality eval drains in parallel with the load, so the bar is active for the whole run.
+      html += "<div class='barlabel'>Quality eval · running (parallel)</div>";
+      html += "<div class='bar'><span class='indet'></span></div>";
     }
   } else if(j.state === 'done'){
     html += "done · <a href='/?run=" + encodeURIComponent(j.run) + "'>open in Dashboards</a></div>";

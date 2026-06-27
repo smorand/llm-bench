@@ -1425,6 +1425,11 @@ async def run_benchmark(
 
     provider = _configure_run_tracer(context)
     context.eval_pipeline = _build_eval_pipeline(config, context)
+    if context.eval_pipeline is not None:
+        # Drain the eval queue concurrently with the load so scoring runs in parallel,
+        # not as a trailing phase. finish() awaits the post-load tail at the end.
+        await context.eval_pipeline.start()
+        logger.info("eval_started", extra={"event": "eval_started", "run_id": context.run_id})
     logger.info("run_started", extra={"event": "run_started", "run_id": context.run_id, "model": entry.model})
     try:
         interrupted = await _drive_sweep(config, context) if context.library.prompts else False
@@ -1432,8 +1437,8 @@ async def run_benchmark(
         if provider is not None:
             provider.shutdown()
 
-    # Publish the perf summary first, then drain the eval queue and backfill its
-    # scores onto the records before persisting the joined artifacts (FR-045/047).
+    # Publish the perf summary first, then await any eval still in flight and backfill
+    # its scores onto the records before persisting the joined artifacts (FR-045/047).
     _render_terminal_summary(context)
     _render_guard_summary(context)
     await _finalize_evaluation(context)
@@ -1468,13 +1473,11 @@ def _eval_queue_maxsize(run: RunConfig) -> int | None:
 
 
 async def _finalize_evaluation(context: RunContext) -> None:
-    """Drain the eval queue, backfill scores, and report coverage (FR-045/046/047)."""
+    """Await the eval backlog, backfill scores, and report coverage (FR-045/046/047)."""
     pipeline = context.eval_pipeline
     if pipeline is None:
         return
-    # Mark the eval phase so the serve UI can show a second 'quality' progress bar.
-    logger.info("eval_started", extra={"event": "eval_started", "run_id": context.run_id})
-    results = await pipeline.drain()
+    results = await pipeline.finish()
     _backfill_eval(context, results, pipeline.dropped)
 
 

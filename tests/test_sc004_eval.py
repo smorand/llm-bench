@@ -374,7 +374,10 @@ def test_e2e_027_eval_never_blocks_load_gen(
     """
     sut_url, _sut_ctrl = fake_sut
     eval_url, eval_ctrl = fake_eval
-    eval_ctrl.delay_ms = 400.0  # slow per-embedding -> backlog must spill
+    # The eval pool drains concurrently with the load, so to still exercise the
+    # drop-on-full safety valve (FR-041) the eval must badly outpace the workers:
+    # 1.5 s per embedding (4 workers -> <3/s) against a 4-slot queue overflows fast.
+    eval_ctrl.delay_ms = 1500.0
 
     prompts = _write_prompts(tmp_path / "p.yaml", [_prompt(f"e{i}", f"q{i}", expected=f"ans{i}") for i in range(40)])
 
@@ -395,7 +398,7 @@ def test_e2e_027_eval_never_blocks_load_gen(
         eval_url=eval_url,
         monkeypatch=monkeypatch,
         method="embedding",
-        eval_queue_maxsize=16,
+        eval_queue_maxsize=4,
     )
     out_dir = tmp_path / "ev_run"
     result = _run(cfg, out_dir, method="embedding", prompts=prompts)
@@ -689,14 +692,16 @@ def test_e2e_033_eval_global_timeout_marks_skipped(
 ) -> None:
     """Draining stops at the global timeout; remaining records are eval_skipped.
 
-    FR-046: with ``evaluation.global_timeout: 1s`` and slow (0.5 s) embeddings and
-    a backlog of 50, draining stops at the timeout; un-evaluated records get
+    FR-046: the eval pool drains concurrently with the load, so to leave a backlog
+    the post-load tail can't clear, the embeddings are very slow (2 s; 4 workers ->
+    ~2/s) against ``evaluation.global_timeout: 1s``. At load end most records are
+    still pending; the 1 s tail clears only a couple, the rest get
     ``eval_status=="eval_skipped"``; summary ``eval.coverage < 1.0``; log contains
     ``eval global timeout (1s) reached, N items skipped``.
     """
     sut_url, _sut_ctrl = fake_sut
     eval_url, eval_ctrl = fake_eval
-    eval_ctrl.delay_ms = 250.0
+    eval_ctrl.delay_ms = 2000.0
     eval_ctrl.default_vector = [1.0, 0.0, 0.0]
 
     prompts = _write_prompts(tmp_path / "p.yaml", [_prompt(f"e{i}", f"q{i}", expected=f"ans{i}") for i in range(24)])
