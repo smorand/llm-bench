@@ -1,0 +1,87 @@
+# llm-bench config. Secrets are referenced via $ENV: and never stored in clear.
+# `--model <name>` selects an entry; the first one is the default.
+models:
+  - name: ibm-haiku
+    base_url: $ENV:IBM_ICA_BASE_URL # IBM ICA gateway, OpenAI-compatible
+    model: claude-haiku-4-5
+    api_key: $ENV:IBM_ICA_MODEL_KEY
+    supports_vision: true
+    supports_tools: true
+  - name: ibm-sonnet # IBM ICA gateway - good judge model
+    base_url: $ENV:IBM_ICA_BASE_URL
+    model: claude-sonnet-4-6
+    api_key: $ENV:IBM_ICA_MODEL_KEY
+    supports_vision: true
+    supports_tools: true
+  - name: ibm-opus # IBM ICA gateway - strongest judge model
+    base_url: $ENV:IBM_ICA_BASE_URL
+    model: claude-opus-4-8
+    api_key: $ENV:IBM_ICA_MODEL_KEY
+    supports_vision: true
+    supports_tools: true
+    send_temperature: false # claude-opus-4-8 rejects the temperature parameter on this gateway
+  - name: ibm-gemma # IBM ICA gateway - lightweight model for tests
+    base_url: $ENV:IBM_ICA_BASE_URL
+    model: gemma-4-26b-a4b-it
+    api_key: $ENV:IBM_ICA_MODEL_KEY
+    supports_vision: false
+    supports_tools: false
+  - name: ei-mistral-medium35
+    base_url: $ENV:EI_MODEL_MISTRAL_MEDIUM35_URL
+    model: mistralai/mistral-medium-3-5 # set to the exact model id your gateway expects
+    api_key: $ENV:EI_MODEL_MISTRAL_MEDIUM35_API_KEY
+    supports_vision: true
+    supports_tools: true
+  - name: ei-qwen36
+    base_url: $ENV:EI_MODEL_QWEN36_URL
+    model: qwen/qwen3.6-27b # set to the exact model id your gateway expects
+    api_key: $ENV:EI_MODEL_QWEN36_API_KEY
+    supports_vision: true
+    supports_tools: true
+  - name: bob-granite # bob-proxy2 gateway ($ENV:BOB_PROXY2_BASE_URL) - requires the VPN
+    base_url: $ENV:BOB_PROXY2_BASE_URL
+    model: granite-4.1-30b
+    api_key: $ENV:BOB_PROXY2_API_KEY
+    supports_vision: false
+    supports_tools: true # verified: returns tool_calls
+  - name: bob-qwen36 # bob-proxy2 gateway ($ENV:BOB_PROXY2_BASE_URL) - requires the VPN
+    base_url: $ENV:BOB_PROXY2_BASE_URL
+    model: Qwen/Qwen3.6-27B-FP8
+    api_key: $ENV:BOB_PROXY2_API_KEY
+    supports_vision: false
+    supports_tools: false # no tool_calls returned via this proxy
+  - name: local
+    base_url: http://localhost:8080/v1 # llama.cpp server (no auth)
+    model: local-model
+    supports_vision: false
+    supports_tools: false
+run:
+  mode: closed
+  duration: 30s
+  warmup: 5s
+  cooldown: 5s
+  min_samples: 30
+  concurrency_levels: [1, 2, 4]
+  max_tokens: 128
+  ignore_eos: false
+  temperature: 0.0
+  cache_busting: true
+  timeout: 60s
+  seed: 0
+  slo_profile: interactive
+slo_profiles:
+  interactive: {ttft_ms: 500, tpot_ms: 50, e2e_ms: 5000}
+  relaxed: {ttft_ms: 2000, tpot_ms: 200, e2e_ms: 30000}
+evaluation:
+  method: none # none | embedding | judge (or pick via --eval-method)
+  global_timeout: 60s
+  embedding:
+    local: cpu # built-in local embedder: cpu (bge-small) or gpu (bge-large); no server to run
+    threshold: 0.80 # mandatory for the embedding method
+    rate_limit: 20
+  judge:
+    rubric: three_level
+    model:
+      url: $ENV:IBM_ICA_BASE_URL
+      api_key: $ENV:IBM_ICA_MODEL_KEY
+      model: claude-haiku-4-5
