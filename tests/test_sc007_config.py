@@ -478,6 +478,15 @@ def test_init_command_scaffolds_dirs_and_starter_config(tmp_path: Path) -> None:
     assert long_library.prompts
     assert all(prompt.isl_bucket == "long" for prompt in long_library.prompts)
 
+    # prompts/quality.yaml re-loads and every entry carries an expected_output so the
+    # quality eval scores (almost) every request instead of skipping most.
+    quality_file = config_dir / "prompts" / "quality.yaml"
+    assert quality_file.is_file()
+    assert f"created: {quality_file}" in result.stdout
+    quality_library = load_prompts(quality_file)
+    assert quality_library.prompts
+    assert all(prompt.expected_output for prompt in quality_library.prompts)
+
     # A starter dashboards/default.yaml is scaffolded and parses.
     assert dashboard_file.is_file()
     from llm_bench.dashboards import parse_dashboard  # noqa: PLC0415

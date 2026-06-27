@@ -367,14 +367,78 @@ STARTER_PROMPTS_LONG: str = """\
         logging-based, dependency-injected rewrite.
 """
 
+# Quality-focused prompt set written by ``llm-bench init`` to ``prompts/quality.yaml``.
+# Every entry declares an ``expected_output`` so the async quality eval (embedding
+# cosine or judge) scores (almost) every request instead of skipping most. Select it
+# with ``--prompts ~/.config/llm-bench/prompts/quality.yaml`` (or in the serve Run tab)
+# together with ``--eval-method embedding`` / ``judge``.
+STARTER_PROMPTS_QUALITY: str = """\
+# Quality-eval prompt library written by 'llm-bench init'.
+# Each prompt has a crisp expected_output, so almost every request is scored:
+#   llm-bench run -m <model> --prompts ~/.config/llm-bench/prompts/quality.yaml --eval-method embedding
+# Schema: id, category, isl_bucket, messages (required); expected_output is the
+# reference answer the eval compares against. Keep answers short and deterministic.
+- id: quality-capital
+  category: general
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "What is the capital of France? Answer with just the city name."
+  expected_output: "Paris"
+- id: quality-arithmetic
+  category: general
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "What is 17 + 25? Reply with just the number."
+  expected_output: "42"
+- id: quality-translate
+  category: general
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Translate 'good morning' into French. Reply with only the translation."
+  expected_output: "Bonjour"
+- id: quality-primes
+  category: general
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "List the first five prime numbers, comma-separated, nothing else."
+  expected_output: "2, 3, 5, 7, 11"
+- id: quality-json
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Return only a JSON object with key 'name' set to 'Ada' and key 'age' set to 36."
+  expected_output: '{"name": "Ada", "age": 36}'
+- id: quality-refactor
+  category: coding
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "Refactor this loop into a comprehension: for x in xs: out.append(x*2)"
+  expected_output: "out = [x * 2 for x in xs]"
+- id: quality-async
+  category: synthesis
+  isl_bucket: short
+  messages:
+    - role: user
+      content: "In one sentence, what does asynchronous I/O improve?"
+  expected_output: "It improves throughput by letting a program do other work while waiting on I/O."
+"""
+
 
 def scaffold_config() -> tuple[list[Path], list[Path]]:
     """Create the default config + runs directories and starter config/prompt files.
 
     Writes a starter ``config.yaml`` and a ``prompts/`` directory holding
-    ``short.yaml`` (a mirror of the built-in library) and ``long.yaml``
-    (instruction-heavy long-input prompts). Idempotent: existing directories and
-    files are left untouched. Returns ``(created, skipped)`` paths to report.
+    ``short.yaml`` (a mirror of the built-in library), ``long.yaml``
+    (instruction-heavy long-input prompts), and ``quality.yaml`` (every prompt has
+    an ``expected_output`` so the quality eval scores almost every request).
+    Idempotent: existing directories and files are left untouched. Returns
+    ``(created, skipped)`` paths to report.
     """
     # Local imports keep these modules out of config's import-time graph.
     from llm_bench.dashboards import STARTER_DASHBOARD  # noqa: PLC0415
@@ -396,6 +460,7 @@ def scaffold_config() -> tuple[list[Path], list[Path]]:
         (DEFAULT_CONFIG_DIR / "config.yaml", STARTER_CONFIG),
         (prompts_dir / "short.yaml", export_builtin_prompts_yaml()),
         (prompts_dir / "long.yaml", STARTER_PROMPTS_LONG),
+        (prompts_dir / "quality.yaml", STARTER_PROMPTS_QUALITY),
         (dashboards_dir / "default.yaml", STARTER_DASHBOARD),
     ):
         if target.exists():

@@ -151,6 +151,7 @@ def _builtin_prompts() -> tuple[Prompt, ...]:
                 },
             ),
             isl_bucket="medium",
+            expected_output="out = [x * 2 for x in xs]",
         ),
         Prompt(
             id="synthesis-summary",
@@ -164,6 +165,10 @@ def _builtin_prompts() -> tuple[Prompt, ...]:
             category="synthesis",
             messages=({"role": _ROLE_USER, "content": "Outline a short blog post about load testing LLM endpoints."},),
             isl_bucket="medium",
+            expected_output=(
+                "An outline for a blog post on load testing LLM endpoints, covering an introduction, "
+                "key latency and throughput metrics, methodology, and a conclusion."
+            ),
         ),
         Prompt(
             id="tool-use-weather",
@@ -241,12 +246,17 @@ def _builtin_prompts() -> tuple[Prompt, ...]:
             category="general",
             messages=({"role": _ROLE_USER, "content": "Say hello and introduce yourself in one sentence."},),
             isl_bucket="short",
+            expected_output="A one-sentence friendly greeting that introduces the assistant.",
         ),
         Prompt(
             id="general-explain",
             category="general",
             messages=({"role": _ROLE_USER, "content": "Explain what a benchmark is to a five year old."},),
             isl_bucket="short",
+            expected_output=(
+                "A simple, child-friendly explanation that a benchmark is a test measuring how fast "
+                "or how well something works, so you can compare options."
+            ),
         ),
     )
 
