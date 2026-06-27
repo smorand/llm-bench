@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+import onnxruntime
 import pytest
 
 from llm_bench import local_embed
@@ -35,3 +36,22 @@ def test_embed_texts_uses_cached_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(local_embed._models, "cpu", _FakeModel())
     out = embed_texts(["a", "b"], "cpu")
     assert out == [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
+
+
+def test_gpu_providers_pick_best_available_dynamically(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The gpu preset dynamically picks CUDA > ROCm > Apple CoreML > CPU, never an absent one."""
+
+    def fake_available(providers: list[str]) -> None:
+        monkeypatch.setattr(onnxruntime, "get_available_providers", lambda: providers)
+
+    # Apple Silicon Mac (no CUDA): CoreML chosen, CPU kept last for per-op fallback.
+    fake_available(["CoreMLExecutionProvider", "AzureExecutionProvider", "CPUExecutionProvider"])
+    assert local_embed._gpu_providers() == ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+
+    # NVIDIA box: CUDA wins over CPU.
+    fake_available(["CUDAExecutionProvider", "CPUExecutionProvider"])
+    assert local_embed._gpu_providers() == ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+    # CPU-only host: just CPU, never empty.
+    fake_available(["CPUExecutionProvider"])
+    assert local_embed._gpu_providers() == ["CPUExecutionProvider"]
