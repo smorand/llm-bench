@@ -1472,6 +1472,8 @@ async def _finalize_evaluation(context: RunContext) -> None:
     pipeline = context.eval_pipeline
     if pipeline is None:
         return
+    # Mark the eval phase so the serve UI can show a second 'quality' progress bar.
+    logger.info("eval_started", extra={"event": "eval_started", "run_id": context.run_id})
     results = await pipeline.drain()
     _backfill_eval(context, results, pipeline.dropped)
 

@@ -648,12 +648,27 @@ class JobRegistry:
         estimate = job["estimate"]
         code = proc.poll()
         if code is None:
-            pct = min(95.0, 100.0 * elapsed / estimate) if estimate else 5.0
-            return {"state": "running", "pct": round(pct, 1), "elapsed": round(elapsed), "estimate": round(estimate)}
+            # Two phases: the load sweep, then the asynchronous quality eval drain.
+            in_eval = "eval_started" in _tail(job["out_dir"] / "launch.log", limit=4000)
+            load_pct = 100.0 if in_eval else (min(99.0, 100.0 * elapsed / estimate) if estimate else 5.0)
+            return {
+                "state": "running",
+                "phase": "eval" if in_eval else "load",
+                "pct": round(load_pct, 1),
+                "elapsed": round(elapsed),
+                "estimate": round(estimate),
+            }
         job["log"].close()
         if code == 0 and (job["out_dir"] / "summary.json").is_file():
             return {"state": "done", "pct": 100.0, "run": job["out_dir"].name}
         return {"state": "failed", "message": _tail(job["out_dir"] / "launch.log"), "code": code}
+
+    def list_jobs(self) -> list[dict[str, Any]]:
+        """Return every launched job with its current status (newest first)."""
+        with self._lock:
+            order = [(jid, job["started"], job["model"]) for jid, job in self._jobs.items()]
+        order.sort(key=lambda item: item[1], reverse=True)
+        return [{"job": jid, "model": model, **self.status(jid)} for jid, _started, model in order]
 
 
 def _tail(path: Path, limit: int = 400) -> str:
@@ -713,8 +728,14 @@ table.help { font-size: .8rem; }
 table.help td { vertical-align: top; border-bottom: 1px solid #f0f0f0; }
 table.help td:first-child { white-space: nowrap; color: #0f62fe; width: 1%; }
 .note { color: #6f6f6f; font-size: .8rem; }
-.bar { height: 8px; background: #e0e0e0; margin: .6rem 0; max-width: 30rem; }
+.bar { height: 8px; background: #e0e0e0; margin: .3rem 0 .5rem; max-width: 30rem; overflow: hidden; }
 .bar > span { display: block; height: 100%; width: 0; background: #0f62fe; transition: width .4s; }
+.bar > span.indet { width: 35%; animation: indet 1.1s ease-in-out infinite; }
+@keyframes indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+.run-badge { margin-left: auto; color: #fff; background: #0f62fe; padding: .15rem .6rem; font-size: .8rem; text-decoration: none; }
+.jobrow { border: 1px solid #e0e0e0; background: #fff; padding: .6rem .8rem; margin: .5rem 0; max-width: 34rem; }
+.jobhead { font-size: .9rem; margin-bottom: .2rem; }
+.barlabel { font-size: .72rem; color: #6f6f6f; }
 .row { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-end; }
 .fld { margin: .9rem 0; }
 .grid { display: flex; flex-wrap: wrap; gap: .35rem; margin: .3rem 0; max-width: 44rem; }
@@ -764,6 +785,21 @@ document.addEventListener('click', e => {
   const t = document.getElementById('tip');
   if(t && !e.target.closest('.i') && !e.target.closest('.pt') && e.target.id !== 'tip'){ t.style.display = 'none'; }
 });
+async function pollRunningBadge(){
+  const b = document.getElementById('running-badge');
+  if(!b) return;
+  try {
+    const r = await (await fetch('/run/jobs')).json();
+    const running = (r.jobs||[]).filter(x => x.state === 'running');
+    if(running.length){
+      const ev = running.some(x => x.phase === 'eval');
+      b.textContent = '▶ ' + running.length + ' run' + (running.length>1?'s':'') + (ev ? ' (scoring quality)' : ' in progress');
+      b.style.display = 'inline';
+      setTimeout(pollRunningBadge, 2000);
+    } else { b.style.display = 'none'; setTimeout(pollRunningBadge, 5000); }
+  } catch(e){ setTimeout(pollRunningBadge, 5000); }
+}
+pollRunningBadge();
 """
 
 
@@ -779,7 +815,8 @@ def _shell(active: str, body: str, runs_count: int) -> str:
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<title>llm-bench report</title><style>{_STYLE}</style></head><body>"
-        f"<div class='hdr'><b>llm-bench</b><span class='muted'>report · {runs_count} run(s)</span></div>"
+        f"<div class='hdr'><b>llm-bench</b><span class='muted'>report · {runs_count} run(s)</span>"
+        "<a id='running-badge' class='run-badge' href='/run' style='display:none'></a></div>"
         f"<nav class='tabs'>{tabs}</nav><main class='main'>{body}</main>"
         f"<script>{_TIP_JS}</script></body></html>"
     )
@@ -892,10 +929,10 @@ def build_run_page(config_path: Path | None, prompts_dir: Path | None, runs_coun
         f"<div class='fld'>{_label('Seed')}<input name='seed' type='number' placeholder='config' size='8'></div>"
         "</div>"
         "<button class='btn' id='startbtn' type='submit'>Start run</button>"
+        "<span class='note' id='startmsg' style='margin-left:1rem'></span>"
         "</form>"
-        "<div id='progress' style='display:none'>"
-        "<h2 id='pstate'>Starting…</h2><div class='bar'><span id='pbar'></span></div>"
-        "<p class='note' id='pmsg'></p></div>"
+        "<h2>Runs this session</h2>"
+        "<div id='jobs'><p class='empty'>No runs launched yet.</p></div>"
         f"<script>{_RUN_JS}</script>"
     )
     return _shell("run", body, runs_count)
@@ -914,39 +951,41 @@ function toggleEval(){
 }
 async function startRun(ev){
   ev.preventDefault();
-  const btn = document.getElementById('startbtn');
-  btn.disabled = true;
-  document.getElementById('progress').style.display = 'block';
-  document.getElementById('pstate').textContent = 'Starting…';
-  document.getElementById('pmsg').textContent = '';
+  const msg = document.getElementById('startmsg'); msg.textContent = 'Launching…';
   const data = new URLSearchParams(new FormData(document.getElementById('runform')));
   try {
-    const res = await fetch('/run/start', {method:'POST', body:data});
-    const j = await res.json();
-    if (j.error) { fail(j.error); return; }
-    poll(j.job);
-  } catch (e) { fail(String(e)); }
+    const j = await (await fetch('/run/start', {method:'POST', body:data})).json();
+    if (j.error) { msg.textContent = j.error; return; }
+    msg.textContent = '';
+    refreshJobs();
+  } catch (e) { msg.textContent = String(e); }
 }
-async function poll(job){
+function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function jobRow(j){
+  let html = "<div class='jobrow'><div class='jobhead'><b>" + esc(j.model||'run') + "</b> ";
+  if(j.state === 'running'){
+    const ev = j.phase === 'eval';
+    html += ev ? "scoring quality…" : ("running · " + Math.round(j.pct||0) + "% · " + (j.elapsed||0) + "s/~" + (j.estimate||0) + "s");
+    html += "</div>";
+    html += "<div class='barlabel'>Load</div><div class='bar'><span style='width:" + (j.pct||0) + "%'></span></div>";
+    if(ev){ html += "<div class='barlabel'>Quality eval</div><div class='bar'><span class='indet'></span></div>"; }
+  } else if(j.state === 'done'){
+    html += "done · <a href='/?run=" + encodeURIComponent(j.run) + "'>open in Dashboards</a></div>";
+  } else if(j.state === 'failed'){
+    html += "<span style='color:#da1e28'>failed: " + esc(j.message || ('exit ' + j.code)) + "</span></div>";
+  } else { html += esc(j.state||'') + "</div>"; }
+  return html + "</div>";
+}
+async function refreshJobs(){
   try {
-    const s = await (await fetch('/run/status?job='+job)).json();
-    const pct = s.pct || 0;
-    document.getElementById('pbar').style.width = pct + '%';
-    if (s.state === 'running') {
-      document.getElementById('pstate').textContent = 'Running… ' + Math.round(pct) + '%';
-      document.getElementById('pmsg').textContent = (s.elapsed||0) + 's / ~' + (s.estimate||0) + 's';
-      setTimeout(() => poll(job), 1000);
-    } else if (s.state === 'done') {
-      document.getElementById('pstate').textContent = 'Done';
-      document.getElementById('pmsg').innerHTML = 'View it in <a href="/?run=' + encodeURIComponent(s.run) + '">Reports</a>.';
-    } else { fail(s.message || ('run failed (exit ' + s.code + ')')); }
-  } catch (e) { fail(String(e)); }
+    const r = await (await fetch('/run/jobs')).json();
+    const jobs = r.jobs || [];
+    const box = document.getElementById('jobs');
+    box.innerHTML = jobs.length ? jobs.map(jobRow).join('') : "<p class='empty'>No runs launched yet.</p>";
+    if(jobs.some(x => x.state === 'running')) setTimeout(refreshJobs, 1500);
+  } catch (e) {}
 }
-function fail(msg){
-  document.getElementById('pstate').textContent = 'Failed';
-  document.getElementById('pmsg').textContent = msg;
-  document.getElementById('startbtn').disabled = false;
-}
+refreshJobs();
 """
 
 
@@ -1374,6 +1413,8 @@ def _make_handler(
                 self._send(build_run_page(config_path, prompts_dir, runs_count).encode("utf-8"))
             elif parts.path == "/run/status":
                 self._json(jobs.status(params.get("job", [""])[0]))
+            elif parts.path == "/run/jobs":
+                self._json({"jobs": jobs.list_jobs()})
             elif parts.path == "/prompts":
                 self._send(build_prompts_page(prompts_dir, runs_count).encode("utf-8"))
             elif parts.path == "/prompts/load":

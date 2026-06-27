@@ -322,6 +322,27 @@ def test_job_lifecycle_running_then_done(tmp_path: Path, monkeypatch: pytest.Mon
     assert done["run"] == job["out_dir"].name
 
 
+def test_job_phase_eval_and_list_jobs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """While running, an 'eval_started' marker flips the phase to 'eval'; list_jobs reports it."""
+    monkeypatch.setattr("llm_bench.serve.subprocess.Popen", lambda *a, **k: _FakeProc())
+    registry = JobRegistry(config_path=None)
+    job_id = registry.start(RunRequest(model="ibm-haiku", load="1", eval_method="embedding"))
+    job = registry._jobs[job_id]
+
+    # load phase: no eval marker yet
+    assert registry.status(job_id)["phase"] == "load"
+    # quality phase: the runner has logged it started draining the eval queue
+    (job["out_dir"] / "launch.log").write_text("INFO run_started\nINFO eval_started\n", encoding="utf-8")
+    running = registry.status(job_id)
+    assert running["phase"] == "eval"
+    assert running["pct"] == 100.0
+
+    listed = registry.list_jobs()
+    assert listed and listed[0]["job"] == job_id
+    assert listed[0]["model"] == "ibm-haiku"
+    assert listed[0]["state"] == "running"
+
+
 def test_job_lifecycle_failure_reports_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A non-zero exit with no summary surfaces as failed with the log tail."""
     monkeypatch.setattr("llm_bench.serve.subprocess.Popen", lambda *a, **k: _FakeProc())
