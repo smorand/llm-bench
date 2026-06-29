@@ -555,9 +555,10 @@ def _build_payload(entry: ModelRegistryEntry, run: RunConfig, prompt: Prompt) ->
         "model": entry.model,
         "messages": messages,
         "max_tokens": run.max_tokens,
-        "stream": True,
-        "stream_options": {"include_usage": True},
+        "stream": entry.stream,
     }
+    if entry.stream:
+        payload["stream_options"] = {"include_usage": True}
     # Some gateway models (e.g. Bedrock-backed claude-opus-4-8) 400 on temperature.
     if entry.send_temperature:
         payload["temperature"] = run.temperature
@@ -586,11 +587,20 @@ async def _perform_request(
     headers: dict[str, str],
     timeout: float,
     t_start: float,
+    stream: bool = True,
 ) -> _Outcome:
-    """Issue one streaming request and classify its outcome (FR-011/FR-013)."""
+    """Issue one streaming or non-streaming request and classify its outcome (FR-011/FR-013)."""
+    # Extract stream preference from payload if not explicitly passed
+    use_stream = stream if stream is not None else payload.get("stream", True)
+    
     try:
-        async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as response:
-            return await _classify_response(response, t_start)
+        if use_stream:
+            async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as response:
+                return await _classify_response(response, t_start)
+        else:
+            # For non-streaming, send a regular POST and simulate stream behavior
+            response = await client.post(url, json=payload, headers=headers, timeout=timeout)
+            return await _classify_non_stream_response(response, t_start)
     except _MalformedStreamError as exc:
         return _Outcome(_OUTCOME_MALFORMED, _HTTP_OK, str(exc), None)
     except httpx.TimeoutException as exc:
@@ -612,6 +622,40 @@ async def _classify_response(response: httpx.Response, t_start: float) -> _Outco
         return _Outcome(_OUTCOME_CONNECTION_ERROR, status, f"HTTP {status}", None)
     stream = await _consume_stream(response, t_start)
     return _Outcome(_OUTCOME_SUCCESS, status, None, stream)
+
+
+async def _classify_non_stream_response(response: httpx.Response, t_start: float) -> _Outcome:
+    """Classify a non-streaming HTTP response (for endpoints that don't support streaming)."""
+    status = response.status_code
+    if status == _HTTP_TOO_MANY_REQUESTS:
+        await response.aread()
+        return _Outcome(_OUTCOME_RATE_LIMITED, status, "HTTP 429 rate limited", None)
+    if status != _HTTP_OK:
+        await response.aread()
+        return _Outcome(_OUTCOME_CONNECTION_ERROR, status, f"HTTP {status}", None)
+    
+    # For non-streaming, simulate a stream result from the single response
+    try:
+        data = response.json()
+        usage = data.get("usage", {})
+        choice = data.get("choices", [{}])[0] if data.get("choices") else {}
+        message = choice.get("message", {}) if choice else {}
+        
+        stream = _StreamResult(
+            ttft=0.0,  # For non-streaming, approximate latency
+            tt2t=0.0,
+            arrival_times=[],
+            output_tokens=usage.get("completion_tokens", 0),
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            cached_tokens=0,
+            reasoning_tokens=0,
+            usage_incomplete=False,
+            finish_reason=choice.get("finish_reason", "stop"),
+            content_text=message.get("content", ""),
+        )
+        return _Outcome(_OUTCOME_SUCCESS, status, None, stream)
+    except Exception as exc:
+        return _Outcome(_OUTCOME_MALFORMED, status, f"failed to parse non-stream response: {exc}", None)
 
 
 # ---------------------------------------------------------------------------
@@ -661,7 +705,7 @@ async def _run_tool_round_trip(
     follow_up.pop("tools", None)
     url = f"{context.entry.base_url.rstrip('/')}/chat/completions"
     t_start = time.monotonic()
-    await _perform_request(client, url=url, payload=follow_up, headers=headers, timeout=timeout, t_start=t_start)
+    await _perform_request(client, url=url, payload=follow_up, headers=headers, timeout=timeout, t_start=t_start, stream=context.entry.stream)
 
 
 def _resolve_tool_calls(
@@ -735,7 +779,7 @@ async def execute_request(
 
     timeout = parse_duration(run.timeout)
     t_start = time.monotonic()
-    result = await _perform_request(client, url=url, payload=payload, headers=headers, timeout=timeout, t_start=t_start)
+    result = await _perform_request(client, url=url, payload=payload, headers=headers, timeout=timeout, t_start=t_start, stream=entry.stream)
     if not preflight and _is_tool_call_turn(result):
         await _run_tool_round_trip(
             client, context, prompt=prompt, payload=payload, headers=headers, timeout=timeout, result=result

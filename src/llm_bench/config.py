@@ -116,26 +116,32 @@ STARTER_CONFIG: str = """\
 # llm-bench config. Secrets are referenced via $ENV: and never stored in clear.
 # `--model <name>` selects an entry; the first one is the default.
 models:
-  - name: ibm-haiku
-    base_url: $ENV:IBM_ICA_BASE_URL   # IBM ICA gateway, OpenAI-compatible
-    model: claude-haiku-4-5           # exact id the ICA team is entitled to (no 'ibm/' prefix)
-    api_key: $ENV:IBM_ICA_API_KEY
-    supports_vision: true
-    supports_tools: true
   - name: ei-mistral-medium35
-    base_url: $ENV:EI_MODEL_MISTRAL_MEDIUM35_URL
-    model: mistral-medium-3.5         # set to the exact model id your gateway expects
-    api_key: $ENV:EI_MODEL_MISTRAL_MEDIUM35_API_KEY
+    base_url: https://iagen-proxy-api-r-wdep.d-trs.apps.sprd-0ds01c-000.cloud.cm-cic.fr/open-ia/v1/sandbox/watsonXExperimental/testIGP/11-I72HC10/c429635d-0fbe-404d-b8a4-b8162c5c5cc4
+    model: mistralai/mistral-medium-3-5-128b
+    api_key: a3610fb4c91d41b29a2d283e98554689
     supports_vision: false
     supports_tools: true
+    ssl_verify: false
+    stream: false
+  - name: ei-qwen35
+    base_url: https://iagen-proxy-api-r-wdep.d-trs.apps.sprd-0ds01c-000.cloud.cm-cic.fr/open-ia/v1/sandbox/llmrouter/llm-poc-agentic/102780011100
+    model: Qwen3.5-27B
+    api_key: c6c19ef7de9c1cfea2ae6b9ffcaf3ab6
+    supports_vision: false
+    supports_tools: true
+    ssl_verify: false
+    stream: false
   - name: ei-qwen36
-    base_url: $ENV:EI_MODEL_QWEN36_URL
-    model: qwen-3.6                    # set to the exact model id your gateway expects
-    api_key: $ENV:EI_MODEL_QWEN36_API_KEY
+    base_url: https://iagen-proxy-api-r-wdep.d-trs.apps.sprd-0ds01c-000.cloud.cm-cic.fr/open-ia/v1/sandbox/llmrouter/llm-poc-agentic/102780011100
+    model: Qwen3.6-27B
+    api_key: c6c19ef7de9c1cfea2ae6b9ffcaf3ab6
     supports_vision: false
     supports_tools: true
+    ssl_verify: false
+    stream: false
   - name: local
-    base_url: http://localhost:8080/v1   # llama.cpp server (no auth)
+    base_url: http://localhost:8080/v1
     model: local-model
     supports_vision: false
     supports_tools: false
@@ -151,7 +157,7 @@ run:
   ignore_eos: false
   temperature: 0.0
   cache_busting: true
-  timeout: 60s
+  timeout: 120s
   seed: 0
   slo_profile: interactive
 
@@ -160,20 +166,18 @@ slo_profiles:
   relaxed:     { ttft_ms: 2000, tpot_ms: 200, e2e_ms: 30000 }
 
 evaluation:
-  method: none                        # none | embedding | judge (or pick via --eval-method)
+  method: none
   global_timeout: 60s
   embedding:
-    local: cpu                        # built-in local embedder: cpu (bge-small) or gpu (bge-large); no server to run
-    # url: http://localhost:8001/v1   # or point at an OpenAI-style /v1/embeddings endpoint and set model:
-    # model: text-embedding-3-small
-    threshold: 0.80                   # mandatory for the embedding method
+    local: cpu
+    threshold: 0.80
     rate_limit: 20
   judge:
-    rubric: three_level               # binary | three_level | score (model returns 0..1 -> quality_score)
+    rubric: three_level
     model:
-      url: $ENV:IBM_ICA_BASE_URL
-      api_key: $ENV:IBM_ICA_API_KEY
-      model: claude-haiku-4-5           # exact id the ICA team is entitled to (no 'ibm/' prefix)
+      url: https://iagen-proxy-api-r-wdep.d-trs.apps.sprd-0ds01c-000.cloud.cm-cic.fr/open-ia/v1/sandbox/llmrouter/llm-poc-agentic/102780011100
+      api_key: c6c19ef7de9c1cfea2ae6b9ffcaf3ab6
+      model: Qwen3.6-27B
 """
 
 
@@ -623,6 +627,8 @@ class ModelRegistryEntry(BaseModel):
     send_temperature: bool = True
     # Disable SSL certificate verification (default true for security).
     ssl_verify: bool = True
+    # Disable streaming (default true; some endpoints do not support it).
+    stream: bool = True
     price_input: float | None = None
     price_output: float | None = None
 
