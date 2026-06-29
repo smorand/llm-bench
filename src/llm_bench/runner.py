@@ -1486,7 +1486,7 @@ def _build_eval_pipeline(config: BenchConfig, context: RunContext) -> EvalPipeli
         return None
     maxsize = _eval_queue_maxsize(config.run)
     timeout = parse_duration(evaluation.global_timeout) if evaluation.global_timeout else None
-    return EvalPipeline(evaluation, queue_maxsize=maxsize, global_timeout=timeout, tracer=context.tracer)
+    return EvalPipeline(evaluation, queue_maxsize=maxsize, global_timeout=timeout, tracer=context.tracer, ssl_verify=context.entry.ssl_verify)
 
 
 def _eval_queue_maxsize(run: RunConfig) -> int | None:

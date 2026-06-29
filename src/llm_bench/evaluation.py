@@ -161,11 +161,13 @@ class EvalPipeline:
         queue_maxsize: int | None,
         global_timeout: float | None,
         tracer: Tracer | None = None,
+        ssl_verify: bool = True,
     ) -> None:
         self._evaluation = evaluation
         self._method = evaluation.method
         self._global_timeout = global_timeout
         self._tracer = tracer
+        self._ssl_verify = ssl_verify
         maxsize = queue_maxsize if queue_maxsize and queue_maxsize > 0 else _DEFAULT_QUEUE_MAXSIZE
         self._queue: asyncio.Queue[EvalRecord] = asyncio.Queue(maxsize=maxsize)
         self._results: dict[str, EvalResult] = {}
@@ -219,7 +221,7 @@ class EvalPipeline:
         """
         if self._workers:
             return
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+        self._client = httpx.AsyncClient(timeout=httpx.Timeout(30.0), verify=self._ssl_verify)
         self._workers = [asyncio.create_task(self._worker()) for _ in range(_DEFAULT_WORKERS)]
 
     async def finish(self) -> dict[str, EvalResult]:

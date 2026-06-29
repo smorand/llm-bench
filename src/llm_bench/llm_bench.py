@@ -478,9 +478,10 @@ def _apply_cli_overrides(
     if request_rate:
         bench_config.run.request_rates = list(request_rate)
         bench_config.run.mode = "open"
-    # Apply ssl_verify override to all models
-    for model in bench_config.models:
-        model.ssl_verify = not no_ssl_verify
+    # Apply ssl_verify override to all models only if --no-ssl-verify was explicitly passed
+    if no_ssl_verify:
+        for model in bench_config.models:
+            model.ssl_verify = False
     if mode is not None:
         if mode not in {"closed", "open"}:
             typer.echo(f"invalid --mode: {mode} (expected 'closed' or 'open')", err=True)
