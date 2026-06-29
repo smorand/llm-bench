@@ -27,6 +27,9 @@ One entry per benchmarkable model. `extra` keys are forbidden.
 | `tokenizer` | str? | Optional tokenizer id. |
 | `supports_vision` | bool | Capability gate; vision prompts are skipped when false. |
 | `supports_tools` | bool | Capability gate; tool prompts are skipped when false. |
+| `send_temperature` | bool | Whether to send the temperature parameter (default true; some gateways reject it). |
+| `ssl_verify` | bool | Disable SSL certificate verification (default true; set false for self-signed certs). |
+| `stream` | bool | Use streaming for requests (default true; set false for endpoints that do not support streaming). |
 | `price_input` | float? | USD per 1M input tokens (enables cost). |
 | `price_output` | float? | USD per 1M output tokens (enables cost). |
 
@@ -91,6 +94,13 @@ models:
     supports_vision: false           # vision prompts are skipped with a warning
     price_input: 0.20                # enables per-request and run cost
     price_output: 0.60
+  - name: ei-mistral-35
+    base_url: https://qa-proxy.example.com/open-ia/v1/sandbox/watsonXExperimental/testIGP/11-I72HC10/c429635d-0fbe-404d-b8a4-b8162c5c5cc4
+    model: mistralai/mistral-medium-3-5-128b
+    api_key: $ENV:EI_MODEL_MISTRAL_MEDIUM35_API_KEY
+    supports_tools: true
+    ssl_verify: false                # disable SSL verification for self-signed certificates
+    stream: false                    # endpoint does not support streaming
 
 run:
   mode: open                         # honest tail latency under load

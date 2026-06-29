@@ -17,8 +17,8 @@ NEVER run `uv run pytest`/`ruff`/`mypy` directly; always use the `make` targets.
 
 ## Project Structure
 - `src/llm_bench/llm_bench.py` : Typer CLI entry point (`run`, `serve`, `models`, `init`; `analyze` hidden)
-- `src/llm_bench/config.py` : configuration schema, `$ENV:` interpolation, model registry, SLO profiles, evaluation block + `--eval-method` selection (FR-003)
-- `src/llm_bench/runner.py` : closed/open-loop load engine, per-request records, artifact persistence, eval enqueue + concurrent draining (eval pool `start()`s before the sweep, `finish()`es after) + backfill orchestration
+- `src/llm_bench/config.py` : configuration schema, `$ENV:` interpolation, model registry, SLO profiles, evaluation block + `--eval-method` selection (FR-003); includes `ModelRegistryEntry` with `ssl_verify` and `stream` fields
+- `src/llm_bench/runner.py` : closed/open-loop load engine, per-request records, artifact persistence, eval enqueue + concurrent draining (eval pool `start()`s before the sweep, `finish()`es after) + backfill orchestration; includes `_build_httpx_client()`, `_perform_request()`, and `_classify_non_stream_response()` for SSL and streaming support
 - `src/llm_bench/evaluation.py` : async eval pipeline (bounded queue, rate-limited worker pool draining concurrently with the load via `start()`/`finish()`, embedding cosine / judge rubric incl. `score` 0..1, unified `quality_score`, global-timeout tail coverage) joined on `request_id` (SC-004, FR-040..047)
 - `src/llm_bench/local_embed.py` : built-in local embeddings (fastembed/ONNX) for `embedding.local: cpu|gpu` (no embeddings server); lazy, memoised
 - `src/llm_bench/metrics.py` : per-request metrics, percentiles, throughput, goodput, cost, `cosine_similarity`
@@ -38,6 +38,8 @@ Run artifacts (`--out`): `raw.jsonl`, `rollup.parquet`, `summary.json`, `traces.
 - Async-first (asyncio + httpx); `time.monotonic()` for all duration measurements.
 - Config via `pydantic-settings` / pydantic models, never `os.environ` directly; secrets via `$ENV:` interpolation, never persisted in clear.
 - Metrics come from the server `usage` field, never from `max_tokens`.
+- SSL verification can be disabled per-model with `ssl_verify: false` (CLI override with `--no-ssl-verify`).
+- Streaming can be disabled per-model with `stream: false` for endpoints that do not support it.
 - The 112 E2E tests in `specs/` are the acceptance contract. Two extreme-scale `heavy` tests are excluded by default; run them with `uv run pytest -m heavy`.
 
 ## Quality Gate
@@ -59,8 +61,9 @@ This project follows the `python` skill. Reload it for the full coding standards
 ## Documentation Index
 - `.agent_docs/architecture.md` : module map, data flow, eval side-channel, FakeSUT/FakeEval harness
 - `.agent_docs/metrics.md` : exact metric definitions, conventions, coordinated-omission caveat
-- `.agent_docs/configuration.md` : full config schema, `$ENV:` interpolation, annotated example
+- `.agent_docs/configuration.md` : full config schema, `$ENV:` interpolation, annotated example (includes `ssl_verify` and `stream` fields)
 - `.agent_docs/evaluation.md` : async eval pipeline, embedding vs judge, `eval_status` values, no-leakage guarantee
+- `.agent_docs/ssl-streaming.md` : SSL certificate verification and streaming configuration details
 - `.agent_docs/python.md` : Python coding standards
 - `.agent_docs/makefile.md` : Makefile documentation
 - `docs/operator-guide.md` : reading results, closed vs open loop, goodput, heavy tests
