@@ -63,6 +63,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+def _build_httpx_client(
+    entry: ModelRegistryEntry,
+    timeout: httpx.Timeout,
+    limits: httpx.Limits,
+) -> httpx.AsyncClient:
+    """Build an AsyncClient with SSL verification based on the model entry config."""
+    return httpx.AsyncClient(
+        limits=limits,
+        timeout=timeout,
+        verify=entry.ssl_verify,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -1371,7 +1389,7 @@ async def preflight_check(config: BenchConfig, model: str | None) -> str:
     )
     timeout = httpx.Timeout(parse_duration(config.run.timeout))
     limits = httpx.Limits(max_connections=4, max_keepalive_connections=4)
-    async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
+    async with _build_httpx_client(entry, timeout, limits) as client:
         await execute_request(client, context, level=0, phase="preflight", preflight=True)
     return entry.base_url
 
@@ -1569,7 +1587,7 @@ async def _drive_sweep(config: BenchConfig, context: RunContext) -> bool:
     limit = max(context.run.concurrency_levels) if context.run.concurrency_levels else 1
     limits = httpx.Limits(max_connections=limit + 8, max_keepalive_connections=limit + 8)
 
-    async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
+    async with _build_httpx_client(context.entry, timeout, limits) as client:
         await execute_request(client, context, level=0, phase="preflight", preflight=True)
         monitor = asyncio.create_task(_run_monitor(context, threshold_ms))
         try:

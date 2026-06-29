@@ -223,6 +223,13 @@ def run(
             help="Embeddings backend: 'local:cpu' / 'local:gpu' (built-in), or a registry model serving /v1/embeddings.",
         ),
     ] = None,
+    no_ssl_verify: Annotated[
+        bool,
+        typer.Option(
+            "--no-ssl-verify",
+            help="Disable SSL certificate verification. Use with caution.",
+        ),
+    ] = False,
 ) -> None:
     """Run a benchmark sweep against one model and write a run directory.
 
@@ -247,6 +254,7 @@ def run(
         slo_profile=slo_profile,
         max_tokens=max_tokens,
         temperature=temperature,
+        no_ssl_verify=no_ssl_verify,
     )
     _apply_eval_overrides_or_exit(
         bench_config, judge_model=judge_model, judge_rubric=judge_rubric, embedding_model=embedding_model
@@ -456,6 +464,7 @@ def _apply_cli_overrides(
     slo_profile: str | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
+    no_ssl_verify: bool = False,
 ) -> None:
     """Fold load-shaping CLI flags onto the config (FR-016/030).
 
@@ -469,6 +478,9 @@ def _apply_cli_overrides(
     if request_rate:
         bench_config.run.request_rates = list(request_rate)
         bench_config.run.mode = "open"
+    # Apply ssl_verify override to all models
+    for model in bench_config.models:
+        model.ssl_verify = not no_ssl_verify
     if mode is not None:
         if mode not in {"closed", "open"}:
             typer.echo(f"invalid --mode: {mode} (expected 'closed' or 'open')", err=True)

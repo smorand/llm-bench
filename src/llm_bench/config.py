@@ -621,6 +621,8 @@ class ModelRegistryEntry(BaseModel):
     # Some gateway models (e.g. Bedrock-backed claude-opus-4-8) reject the
     # ``temperature`` parameter; set this false to omit it from every request.
     send_temperature: bool = True
+    # Disable SSL certificate verification (default true for security).
+    ssl_verify: bool = True
     price_input: float | None = None
     price_output: float | None = None
 
